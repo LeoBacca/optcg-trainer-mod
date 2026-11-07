@@ -10,7 +10,7 @@ already on your OPTCG Trainer account, with your notes at the right moment.
 
 ## Install (2 minutes)
 
-1. Download **`OPTCG-Trainer-x.y.z.zip`** from the [latest release](../../releases/latest).
+1. Download **`OPTCG-Trainer-x.y.z.zip`** from the [Releases page](https://github.com/LeoBacca/optcg-trainer-mod/releases) (the newest one is at the top).
 2. Right-click the zip → **Extract All…** → **Extract**.
 3. Close OPTCGSim, then double-click **`Install OPTCG Trainer`** in the extracted folder.
    - If Windows asks *"Do you want to run this file?"* press **Run**.
