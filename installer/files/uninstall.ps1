@@ -1,14 +1,14 @@
 ﻿# OPTCG Trainer - uninstaller. Double-click "Uninstall OPTCG Trainer.cmd" to run it.
 # Removes winhttp.dll from the OPTCGSim folder (only if it's ours), the desktop shortcut and BepInEx + the mod.
 # Your notes and the copies of your game logs stay in %LOCALAPPDATA%\OPTCGTrainer (delete that folder to remove them too).
-param([switch]$Quiet, [string]$ShortcutDir = "")
+param([switch]$Quiet, [string]$ShortcutDir = "", [string]$HomeDir = "")   # -HomeDir: only for tests (keeps a real install untouched)
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Windows.Forms
 $here = $PSScriptRoot
 $title = "OPTCG Trainer"
 function Say([string]$text) { if ($Quiet) { Write-Host $text } else { [System.Windows.Forms.MessageBox]::Show($text, $title) | Out-Null } }
 
-$home_ = Join-Path $env:LOCALAPPDATA "OPTCGTrainer"
+$home_ = if ($HomeDir) { $HomeDir } else { Join-Path $env:LOCALAPPDATA "OPTCGTrainer" }
 $info = Join-Path $home_ "install.json"
 $simDir = if (Test-Path $info) { (Get-Content $info -Raw | ConvertFrom-Json).simDir } else { $null }
 

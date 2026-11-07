@@ -7,8 +7,10 @@
 #   3. puts BepInEx and the mod in %LOCALAPPDATA%\OPTCGTrainer (outside the game folder, so OPTCGSim updates don't touch it)
 #   4. creates the "OPTCGSim + Trainer" shortcut on your desktop: that one starts OPTCGSim with the mod.
 # Undo everything with "Uninstall OPTCG Trainer.cmd".
-param([string]$SimDir = "", [switch]$Quiet, [string]$ShortcutDir = "")
+param([string]$SimDir = "", [switch]$Quiet, [string]$ShortcutDir = "", [string]$HomeDir = "")   # -HomeDir: only for tests (keeps a real install untouched)
 $ErrorActionPreference = "Stop"
+# everything the installer does goes to this file: send it to Leo if something doesn't work
+try { Start-Transcript -Path (Join-Path $env:TEMP "optcgtrainer-install.log") -Force | Out-Null } catch { }
 Add-Type -AssemblyName System.Windows.Forms
 $here = $PSScriptRoot
 $title = "OPTCG Trainer"
@@ -88,58 +90,68 @@ function Recent-Sims {
     return $out | Select-Object -Unique
 }
 
-if (-not $SimDir) {
-    $sims = @(Recent-Sims)
-    if ($sims.Count -eq 0) {
-        if (-not $Quiet) { Write-Host "Looking for OPTCGSim on this PC... (it can take a minute)" }
-        $sims = @(Find-Sims)
+try {
+    if (-not $SimDir) {
+        $sims = @(Recent-Sims)
+        if ($sims.Count -eq 0) {
+            if (-not $Quiet) { Write-Host "Looking for OPTCGSim on this PC... (it can take a minute)" }
+            $sims = @(Find-Sims)
+        }
+        if ($sims.Count -eq 1) {
+            $answer = if ($Quiet) { "Yes" } else { [System.Windows.Forms.MessageBox]::Show("Install OPTCG Trainer for the OPTCGSim in:`n`n$($sims[0])", $title, "YesNo", "Question") }
+            $SimDir = if ($answer -eq "Yes") { $sims[0] } else { Pick-Folder }
+        }
+        elseif ($sims.Count -gt 1) { $SimDir = Pick-FromList $sims }
+        else { Say "I couldn't find OPTCGSim. Please select its folder (the one with OPTCGSim.exe inside)."; $SimDir = Pick-Folder }
     }
-    if ($sims.Count -eq 1) {
-        $answer = if ($Quiet) { "Yes" } else { [System.Windows.Forms.MessageBox]::Show("Install OPTCG Trainer for the OPTCGSim in:`n`n$($sims[0])", $title, "YesNo", "Question") }
-        $SimDir = if ($answer -eq "Yes") { $sims[0] } else { Pick-Folder }
+    if (-not $SimDir) { exit 0 }   # you cancelled
+    if (-not (Test-Path -LiteralPath (Join-Path $SimDir "OPTCGSim.exe"))) { Say "There's no OPTCGSim.exe in:`n$SimDir`n`nNothing was installed." "Warning"; exit 0 }
+
+    # ---- 2. OPTCGSim must be closed (its files are in use while it runs) ----
+    while (Get-Process OPTCGSim -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($SimDir) }) {
+        if ($Quiet) { Write-Host "OPTCGSim is open: close it first."; exit 1 }
+        $r = [System.Windows.Forms.MessageBox]::Show("Please close OPTCGSim, then press OK.", $title, "OKCancel", "Warning")
+        if ($r -ne "OK") { exit 0 }
     }
-    elseif ($sims.Count -gt 1) { $SimDir = Pick-FromList $sims }
-    else { Say "I couldn't find OPTCGSim. Please select its folder (the one with OPTCGSim.exe inside)."; $SimDir = Pick-Folder }
+
+    # ---- 3. the files ----
+    $home_ = if ($HomeDir) { $HomeDir } else { Join-Path $env:LOCALAPPDATA "OPTCGTrainer" }
+    $bep = Join-Path $home_ "BepInEx"
+    New-Item -ItemType Directory -Force (Join-Path $bep "core"), (Join-Path $bep "plugins") | Out-Null
+    Copy-Item -Force (Join-Path $here "BepInEx\core\*") (Join-Path $bep "core")
+    Copy-Item -Force (Join-Path $here "OPTCGTrainer.dll") (Join-Path $bep "plugins")
+    Copy-Item -Force (Join-Path $here "optcgtrainer.ico") $home_
+
+    $ours = Join-Path $here "winhttp.dll"
+    $theirs = Join-Path $SimDir "winhttp.dll"
+    if ((Test-Path $theirs) -and ((Get-FileHash $theirs).Hash -ne (Get-FileHash $ours).Hash)) {
+        Copy-Item -Force $theirs "$theirs.before-optcgtrainer"   # another mod loader was there: kept aside, Uninstall puts it back
+    }
+    Copy-Item -Force $ours $theirs
+
+    @{ simDir = $SimDir; installedAt = (Get-Date).ToString("o") } | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $home_ "install.json")
+
+    # ---- 4. the shortcut ----
+    $desktop = if ($ShortcutDir) { $ShortcutDir } else { [Environment]::GetFolderPath("Desktop") }
+    $lnk = Join-Path $desktop "OPTCGSim + Trainer.lnk"
+    $shell = New-Object -ComObject WScript.Shell
+    $s = $shell.CreateShortcut($lnk)
+    $s.TargetPath = Join-Path $SimDir "OPTCGSim.exe"
+    $s.WorkingDirectory = $SimDir
+    $s.Arguments = "--doorstop-enabled true --doorstop-target-assembly `"$(Join-Path $bep 'core\BepInEx.Preloader.dll')`""
+    $s.IconLocation = (Join-Path $home_ "optcgtrainer.ico") + ",0"
+    $s.Description = "OPTCGSim with OPTCG Trainer"
+    $s.Save()
+    # the same shortcut in the Start menu (All apps, and you can search it); pinning it is up to you: right-click > Pin
+    if (-not $ShortcutDir) { Copy-Item -Force $lnk (Join-Path ([Environment]::GetFolderPath("Programs")) "OPTCGSim + Trainer.lnk") }
+
+    Say "OPTCG Trainer is installed!`n`nOpen 'OPTCGSim + Trainer' from your desktop (not the usual OPTCGSim).`n`nThe first time, press the blue OPTCG TRAINER button in the main menu to link your OPTCG Trainer account."
 }
-if (-not $SimDir) { exit 1 }
-if (-not (Test-Path -LiteralPath (Join-Path $SimDir "OPTCGSim.exe"))) { Say "There's no OPTCGSim.exe in:`n$SimDir`n`nNothing was installed." "Warning"; exit 1 }
-
-# ---- 2. OPTCGSim must be closed (its files are in use while it runs) ----
-while (Get-Process OPTCGSim -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($SimDir) }) {
-    if ($Quiet) { Write-Host "OPTCGSim is open: close it first."; exit 1 }
-    $r = [System.Windows.Forms.MessageBox]::Show("Please close OPTCGSim, then press OK.", $title, "OKCancel", "Warning")
-    if ($r -ne "OK") { exit 1 }
+catch {
+    $msg = $_.Exception.Message
+    Write-Host "ERROR: $msg"
+    Write-Host $_.ScriptStackTrace
+    if (-not $Quiet) { [System.Windows.Forms.MessageBox]::Show("Something went wrong:`n`n$msg`n`nSend a screenshot of this message to Leo, with the file:`n$env:TEMP\optcgtrainer-install.log", $title, "OK", "Error") | Out-Null }
+    exit 1
 }
-
-# ---- 3. the files ----
-$home_ = Join-Path $env:LOCALAPPDATA "OPTCGTrainer"
-$bep = Join-Path $home_ "BepInEx"
-New-Item -ItemType Directory -Force (Join-Path $bep "core"), (Join-Path $bep "plugins") | Out-Null
-Copy-Item -Force (Join-Path $here "BepInEx\core\*") (Join-Path $bep "core")
-Copy-Item -Force (Join-Path $here "OPTCGTrainer.dll") (Join-Path $bep "plugins")
-Copy-Item -Force (Join-Path $here "optcgtrainer.ico") $home_
-
-$ours = Join-Path $here "winhttp.dll"
-$theirs = Join-Path $SimDir "winhttp.dll"
-if ((Test-Path $theirs) -and ((Get-FileHash $theirs).Hash -ne (Get-FileHash $ours).Hash)) {
-    Copy-Item -Force $theirs "$theirs.before-optcgtrainer"   # another mod loader was there: kept aside, Uninstall puts it back
-}
-Copy-Item -Force $ours $theirs
-
-@{ simDir = $SimDir; installedAt = (Get-Date).ToString("o") } | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $home_ "install.json")
-
-# ---- 4. the shortcut ----
-$desktop = if ($ShortcutDir) { $ShortcutDir } else { [Environment]::GetFolderPath("Desktop") }
-$lnk = Join-Path $desktop "OPTCGSim + Trainer.lnk"
-$shell = New-Object -ComObject WScript.Shell
-$s = $shell.CreateShortcut($lnk)
-$s.TargetPath = Join-Path $SimDir "OPTCGSim.exe"
-$s.WorkingDirectory = $SimDir
-$s.Arguments = "--doorstop-enabled true --doorstop-target-assembly `"$(Join-Path $bep 'core\BepInEx.Preloader.dll')`""
-$s.IconLocation = (Join-Path $home_ "optcgtrainer.ico") + ",0"
-$s.Description = "OPTCGSim with OPTCG Trainer"
-$s.Save()
-# the same shortcut in the Start menu (All apps, and you can search it); pinning it is up to you: right-click > Pin
-if (-not $ShortcutDir) { Copy-Item -Force $lnk (Join-Path ([Environment]::GetFolderPath("Programs")) "OPTCGSim + Trainer.lnk") }
-
-Say "OPTCG Trainer is installed!`n`nOpen 'OPTCGSim + Trainer' from your desktop (not the usual OPTCGSim).`n`nThe first time, press the blue OPTCG TRAINER button in the main menu to link your OPTCG Trainer account."
+finally { try { Stop-Transcript | Out-Null } catch { } }
