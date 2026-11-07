@@ -15,7 +15,8 @@ already on your OPTCG Trainer account, with your notes at the right moment.
 3. Close OPTCGSim, then double-click **`Install OPTCG Trainer`** in the extracted folder.
    - If Windows asks *"Do you want to run this file?"* press **Run**.
    - It finds your OPTCGSim by itself. If you have more than one, pick the one you play with.
-4. Open **OPTCGSim + Trainer** from your desktop. **Use this icon from now on**: the usual OPTCGSim still starts without the mod.
+4. Open **OPTCGSim + Trainer** from your desktop or the Start menu. **Use it from now on**: the usual OPTCGSim still starts without the mod.
+   (To pin it to the taskbar: right-click it → *Pin to taskbar*.)
 5. In the main menu press the blue **OPTCG TRAINER** button. Your browser opens OPTCG Trainer: check the code is the same
    you see in the sim and press **Link**. You do this once.
 
@@ -53,7 +54,7 @@ A copy of every game log is also kept in `%LOCALAPPDATA%\OPTCGTrainer\logs`: OPT
 
 - **In your OPTCGSim folder: one file, `winhttp.dll`** (Unity Doorstop, the loader used by BepInEx). Nothing of OPTCGSim is modified.
 - Everything else is in `%LOCALAPPDATA%\OPTCGTrainer`: BepInEx, the mod, your notes, the log copies.
-- A shortcut on your desktop: *OPTCGSim + Trainer*.
+- A shortcut on your desktop and in the Start menu: *OPTCGSim + Trainer*.
 
 ## What it doesn't do
 
@@ -71,7 +72,7 @@ OPTCGSim keeps working as usual. Then check here for a new version.
 
 ## Uninstall
 
-Double-click **`Uninstall OPTCG Trainer`** (in the folder you extracted). It removes `winhttp.dll`, the desktop shortcut and
+Double-click **`Uninstall OPTCG Trainer`** (in the folder you extracted). It removes `winhttp.dll`, the shortcuts and
 the mod. Your notes and log copies stay in `%LOCALAPPDATA%\OPTCGTrainer`: delete that folder to remove them too.
 
 ## Problems?

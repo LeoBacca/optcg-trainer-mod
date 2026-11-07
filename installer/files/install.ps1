@@ -139,5 +139,7 @@ $s.Arguments = "--doorstop-enabled true --doorstop-target-assembly `"$(Join-Path
 $s.IconLocation = (Join-Path $home_ "optcgtrainer.ico") + ",0"
 $s.Description = "OPTCGSim with OPTCG Trainer"
 $s.Save()
+# the same shortcut in the Start menu (All apps, and you can search it); pinning it is up to you: right-click > Pin
+if (-not $ShortcutDir) { Copy-Item -Force $lnk (Join-Path ([Environment]::GetFolderPath("Programs")) "OPTCGSim + Trainer.lnk") }
 
 Say "OPTCG Trainer is installed!`n`nOpen 'OPTCGSim + Trainer' from your desktop (not the usual OPTCGSim).`n`nThe first time, press the blue OPTCG TRAINER button in the main menu to link your OPTCG Trainer account."

@@ -20,6 +20,7 @@ if ($simDir) {
 }
 $desktop = if ($ShortcutDir) { $ShortcutDir } else { [Environment]::GetFolderPath("Desktop") }
 Remove-Item -Force (Join-Path $desktop "OPTCGSim + Trainer.lnk") -ErrorAction SilentlyContinue
+if (-not $ShortcutDir) { Remove-Item -Force (Join-Path ([Environment]::GetFolderPath("Programs")) "OPTCGSim + Trainer.lnk") -ErrorAction SilentlyContinue }
 Remove-Item -Recurse -Force (Join-Path $home_ "BepInEx") -ErrorAction SilentlyContinue
 Remove-Item -Force $info, (Join-Path $home_ "optcgtrainer.ico") -ErrorAction SilentlyContinue
 
