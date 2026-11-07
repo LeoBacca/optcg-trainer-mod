@@ -46,6 +46,8 @@ a card in your opponent's hand is known only if it came from the board or the tr
 
 **Your games on your account.** When a game ends it goes to your OPTCG Trainer account by itself, with your notes.
 *Open this game in OPTCG Trainer* opens the replay. Games you leave halfway (Back to Main) are uploaded too.
+Each game also knows its type: ladder (OPBounty), queue, private lobby or Solo, and the queue (Standard, OP18…),
+so on OPTCG Trainer you can filter your games by type.
 A copy of every game log is also kept in `%LOCALAPPDATA%\OPTCGTrainer\logs`: OPTCGSim updates delete its own `CombatLogs` folder.
 
 ![End of the game](docs/images/end.jpg)
@@ -60,7 +62,7 @@ A copy of every game log is also kept in `%LOCALAPPDATA%\OPTCGTrainer\logs`: OPT
 
 - It doesn't change the rules, the cards, the network or anything that decides a game. It only adds buttons and panels on your screen.
 - It never writes into OPTCGSim's own game log.
-- It only talks to `optcgtrainer.com`, and only after you link your account: it uploads your game logs and your notes, nothing else.
+- It only talks to `optcgtrainer.com`, and only after you link your account: it uploads your game logs (with the game type) and your notes, nothing else.
   The link can be removed any time from OPTCG Trainer → Settings → *OPTCGSim linked*.
 - The code is all here: read it, build it yourself if you prefer.
 

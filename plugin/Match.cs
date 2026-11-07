@@ -57,7 +57,34 @@ namespace OPTCGTrainer
         {
             if (game.gsv_CurrentGame == null || Journal(game) == null) return;
             var m = ForGame(game);
-            if (m != null && !m.Finished && game.gsv_CurrentGame.iTurnNumber > m.maxTurn) m.maxTurn = game.gsv_CurrentGame.iTurnNumber;
+            if (m == null || m.Finished) return;
+            if (game.gsv_CurrentGame.iTurnNumber > m.maxTurn) m.maxTurn = game.gsv_CurrentGame.iTurnNumber;
+            Describe(game, m);
+        }
+
+        /// Il tipo di partita, come lo sa il sim: Solo v Self; ladder se è una partita OPBounty (ha il suo numero, che il sim
+        /// scrive anche nel log, riga RZ1|META); lobby privata con codice; altrimenti la coda pubblica del formato scelto.
+        /// Si ricontrolla finché la partita non finisce: il numero OPBounty può arrivare qualche istante dopo l'inizio.
+        static void Describe(GameplayLogicScript game, MatchFile m)
+        {
+            int ladder = OPBMatchManager.ActiveServerMatchNo;
+            string kind = game.e_GameStyle == GameStyle.SoloVSelf ? "solo" : ladder > 0 ? "ladder" : game.isPrivate ? "private" : "queue";
+            if (kind == m.matchKind && (kind != "ladder" || m.ladderMatch == ladder)) return;
+            m.matchKind = kind;
+            m.ladderMatch = kind == "ladder" ? ladder : 0;
+            m.matchFormat = kind == "solo" || game.eMultiStyle == MultiplayerStyle.Private ? null : FormatName(game);
+            Plugin.Log.LogInfo($"tipo di partita: {m.matchKind}{(m.matchFormat != null ? " · " + m.matchFormat : "")}{(m.ladderMatch > 0 ? " · OPBounty " + m.ladderMatch : "")}");
+        }
+
+        // il nome della coda come lo vede il giocatore (dalle traduzioni del sim: Button.Nationals = "OP18", Button.Western = "Standard"…)
+        internal static string FormatName(GameplayLogicScript game, MultiplayerStyle? style = null)
+        {
+            var key = "Button." + (style ?? game.eMultiStyle);
+            string name = null;
+            try { name = game.tls_Translation != null ? game.tls_Translation.Translate(key) : null; } catch (Exception) { }
+            if (string.IsNullOrEmpty(name) || name == "UNTRANSLATED") name = (style ?? game.eMultiStyle).ToString();
+            name = name.Replace("<br>", " ").Trim();
+            return name.Length > 40 ? name.Substring(0, 40) : name;
         }
 
         internal static void AddNote(GameplayLogicScript game, int line, int turn, string text)
@@ -115,7 +142,7 @@ namespace OPTCGTrainer
             m.backup = backup;
             m.finishedAt = DateTime.UtcNow.ToString("o");
             Store.SaveMatch(m);
-            Plugin.Log.LogInfo($"partita {how}: {m.logName}, {m.notes.Count} note, copia in {backup}");
+            Plugin.Log.LogInfo($"partita {how}: {m.logName}, {m.matchKind ?? "tipo ?"}{(m.matchFormat != null ? " · " + m.matchFormat : "")}, {m.notes.Count} note, copia in {backup}");
             Account.Kick();
         }
 

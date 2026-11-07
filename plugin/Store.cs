@@ -39,6 +39,9 @@ namespace OPTCGTrainer
         public string site;         // il sito dove sta replayId (se la mod passa a un altro sito, lì va ricaricata)
         public string uploadError;  // il sito l'ha rifiutata (es. partita troppo corta): non si riprova
         public int maxTurn;         // il turno più alto visto giocando (una partita abbandonata al mulligan non si carica)
+        public string matchKind;    // ladder (OPBounty) · queue (coda pubblica) · private (lobby con codice) · solo
+        public string matchFormat;  // il nome della coda come lo vedi nel menu (Standard, OP18…), se c'è
+        public int ladderMatch;     // il numero della partita OPBounty, per le partite di ladder
         public List<NoteItem> notes = new List<NoteItem>();
 
         [JsonIgnore] public bool Finished => !string.IsNullOrEmpty(backup);
@@ -47,7 +50,11 @@ namespace OPTCGTrainer
 
     static class Store
     {
-        internal static readonly string Root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OPTCGTrainer");
+        // con il telecomando delle prove acceso la mod usa una cartella tutta sua: le prove non toccano mai il collegamento
+        // e le partite dell'installazione vera (si decide alla prima richiesta, dopo DevCommands.Init)
+        static string root;
+        internal static string Root => root ??= Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            DevCommands.Enabled ? "OPTCGTrainer-prova" : "OPTCGTrainer");
         internal static string Logs => Dir("logs");
         static string Matches => Dir("matches");
         static string AccountPath => Path.Combine(Root, "account.json");

@@ -166,6 +166,9 @@ namespace OPTCGTrainer
             req.Header("X-File-Name", Uri.EscapeDataString(m.logName ?? "sim.log"));
             var played = PlayedAt(m.logName);
             if (played != null) req.Header("X-Played-At", played);
+            // il tipo di partita (ladder, queue, private, solo) e la coda: sul sito servono al filtro della raccolta
+            if (m.matchKind != null) req.Header("X-Match-Kind", m.matchKind);
+            if (m.matchFormat != null) req.Header("X-Match-Format", Uri.EscapeDataString(m.matchFormat));
             yield return req.Send();
             if (req.Ok && (string)req.Body["replay"]?["id"] != null)
             {

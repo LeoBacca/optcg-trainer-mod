@@ -19,7 +19,7 @@ namespace OPTCGTrainer
     public class Plugin : BaseUnityPlugin
     {
         public const string Guid = "com.optcgtrainer.mod";
-        public const string Version = "0.3.0";
+        public const string Version = "0.3.2";
         internal static ManualLogSource Log;
         internal static Plugin Instance;
         internal static Sprite LogoSprite;
@@ -64,6 +64,11 @@ namespace OPTCGTrainer
             ("CardDatabaseScript", "GetCardImage"),
             ("PlayerState", "Lgo_MyDeploy"),
             ("GameplayLogicScript", "go_P0Board"),
+            ("GameplayLogicScript", "e_GameStyle"),
+            ("GameplayLogicScript", "eMultiStyle"),
+            ("GameplayLogicScript", "isPrivate"),
+            ("GameplayLogicScript", "tls_Translation"),
+            ("OPBMatchManager", "ActiveServerMatchNo"),
             ("GameplayLogicScript", "go_P1Board"),
             ("HostJoinScript", "go_Patchnotes"),
             ("ReplayEvidenceJournal", "Path"),

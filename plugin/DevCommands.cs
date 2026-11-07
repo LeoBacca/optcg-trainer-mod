@@ -84,6 +84,9 @@ namespace OPTCGTrainer
                 case "pcall": return PCall(arg);
                 case "screen": return $"{Screen.fullScreenMode} {Screen.width}x{Screen.height}";
                 case "zones": return Zones();
+                case "formats":
+                    var g = UnityEngine.Object.FindAnyObjectByType<GameplayLogicScript>();
+                    return string.Join("\n", ((MultiplayerStyle[])Enum.GetValues(typeof(MultiplayerStyle))).Select(st => st + " = " + Match.FormatName(g, st)));
                 case "over":
                     var xy = arg.Split(' ');
                     return GameUi.Over(new Vector2(float.Parse(xy[0]), Screen.height - float.Parse(xy[1]))) ? "sopra la mod" : "fuori";
