@@ -1,0 +1,25 @@
+<!doctype html><html><head><meta charset="utf-8">
+<!-- Le icone dell'Event Coach in una striscia sola (icone.png, 7 caselle da 128 px), prese dai disegni (docs/coach-disegni).
+     Si rifà con tools\icone.ps1. L'ordine conta: CoachLook.Icon le prende per posizione. -->
+<style>
+* { margin: 0; padding: 0; }
+html, body { width: 896px; height: 128px; background: transparent; overflow: hidden; }
+body { display: flex; }
+div { width: 128px; height: 128px; display: flex; align-items: center; justify-content: center; }
+</style></head><body>
+<!-- 0 spunta scura (sulle caselle d'oro) -->
+<div><svg width="112" height="88" viewBox="0 0 18 14"><path d="M2 7l5 5 9-10" stroke="#1b1b1b" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+<!-- 1 stella bianca (si tinge: scura nel calendario del Setup, oro nelle statistiche) -->
+<div><svg width="120" height="120" viewBox="0 0 24 24"><path d="M12 2l2.9 6.6 7.1.6-5.4 4.7 1.6 7L12 17.3 5.8 20.9l1.6-7L2 9.2l7.1-.6z" fill="#fff"/></svg></div>
+<!-- 2 fiamma della serie -->
+<div><svg width="100" height="125" viewBox="0 0 40 50"><defs><linearGradient id="f" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#e8862a"/><stop offset="1" stop-color="#F5C242"/></linearGradient></defs>
+  <path d="M20 2c3 9 14 15 14 29a14 14 0 0 1-28 0c0-7 4-11 7-14 0 5 2 8 5 9-2-9 0-17 2-24z" fill="url(#f)" stroke="#0d1526" stroke-width="1.5"/>
+  <path d="M20 46a7 7 0 0 1-7-7c0-4 3-6 5-9 0 3 2 5 4 5 1-2 0-4 0-6 3 2 5 6 5 10a7 7 0 0 1-7 7z" fill="#fff3c4"/></svg></div>
+<!-- 3 trofeo (EVENT READY) -->
+<div><svg width="120" height="120" viewBox="0 0 24 24"><path d="M7 3h10v3h3v2a5 5 0 0 1-4.6 5A5 5 0 0 1 13 15.9V18h3v3H8v-3h3v-2.1A5 5 0 0 1 8.6 13 5 5 0 0 1 4 8V6h3zm0 5V8H6a3 3 0 0 0 1 2zm10 0v2a3 3 0 0 0 1-2z" fill="#F5C242"/></svg></div>
+<!-- 4 freccia a sinistra, 5 a destra (i pulsanti dei mesi) -->
+<div><svg width="64" height="64" viewBox="0 0 10 10"><path d="M7.5 1L2 5l5.5 4z" fill="#111"/></svg></div>
+<div><svg width="64" height="64" viewBox="0 0 10 10"><path d="M2.5 1L8 5 2.5 9z" fill="#111"/></svg></div>
+<!-- 6 spunta grigia sottile (le caselle di spunta, come quelle di Batsu) -->
+<div><svg width="96" height="96" viewBox="0 0 28 28"><path d="M9 14.5l3.6 3.6L19.5 9" stroke="#707070" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+</body></html>

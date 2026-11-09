@@ -141,8 +141,9 @@ namespace OPTCGTrainer
             m.logName = Path.GetFileName(source);
             m.backup = backup;
             m.finishedAt = DateTime.UtcNow.ToString("o");
+            CoachStore.OnRegistered(m, source); // il riassunto per l'Event Coach (esito, leader, turni), dalla copia
             Store.SaveMatch(m);
-            Plugin.Log.LogInfo($"partita {how}: {m.logName}, {m.matchKind ?? "tipo ?"}{(m.matchFormat != null ? " · " + m.matchFormat : "")}, {m.notes.Count} note, copia in {backup}");
+            Plugin.Log.LogInfo($"partita {how}: {m.logName}, {m.matchKind ?? "tipo ?"}{(m.matchFormat != null ? " · " + m.matchFormat : "")}, {(m.game != null ? $"esito {m.game.result}, T{m.game.turns}, " : "")}{m.notes.Count} note, copia in {backup}");
             Account.Kick();
         }
 

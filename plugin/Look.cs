@@ -154,16 +154,22 @@ namespace OPTCGTrainer
         }
     }
 
-    // passando sopra il pulsante si ingrandisce un poco, e torna giù quando esci
+    // passando sopra il pulsante si ingrandisce un poco, e torna giù quando esci. Sopra un pulsante più piccolo che sta
+    // dentro di lui (la riga dell'aggiornamento sopra OPTCG TRAINER) no: lì il clic non è suo.
     class HoverGrow : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
     {
         Vector3 rest;
-        float target = 1f;
+        PointerEventData pointer;   // Unity riusa lo stesso per il mouse: pointerEnter dice dove sta adesso
 
         void Awake() => rest = transform.localScale;
-        void OnDisable() { target = 1f; transform.localScale = rest; }
-        public void OnPointerEnter(PointerEventData e) => target = 1.07f;
-        public void OnPointerExit(PointerEventData e) => target = 1f;
-        void Update() => transform.localScale = Vector3.Lerp(transform.localScale, rest * target, Time.unscaledDeltaTime * 14f);
+        void OnDisable() { pointer = null; transform.localScale = rest; }
+        public void OnPointerEnter(PointerEventData e) => pointer = e;
+        public void OnPointerExit(PointerEventData e) => pointer = null;   // arriva solo uscendo del tutto (non entrando in un figlio)
+        void Update()
+        {
+            var over = pointer != null && pointer.pointerEnter != null ? pointer.pointerEnter.GetComponentInParent<Button>() : null;
+            float target = pointer != null && (over == null || over.gameObject == gameObject || !over.enabled) ? 1.07f : 1f;
+            transform.localScale = Vector3.Lerp(transform.localScale, rest * target, Time.unscaledDeltaTime * 14f);
+        }
     }
 }

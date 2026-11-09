@@ -1,8 +1,9 @@
 // Quello che la mod aggiunge alla schermata di gioco:
-//  - due pulsanti blu nella colonna di destra, sotto "Restart this turn": Add note e Focus mode;
+//  - due pulsanti blu nella colonna di destra, sotto "Restart this turn": Add note e Focus mode (dietro la carta grande);
 //  - il pannello per scrivere una nota, sopra il log (la nota si ancora al momento in cui l'hai aperto);
 //  - Focus mode: nasconde tutto tranne il tavolo, le scelte, Back to Main, Concede e i popup dell'avversario;
-//  - a fine partita, sotto YOU WIN / YOU LOSE, il pulsante grande per aprire la partita su OPTCG Trainer.
+//  - a fine partita, sotto YOU WIN / YOU LOSE, il pulsante grande per aprire la partita su OPTCG Trainer, e sotto
+//    (con l'Event Coach acceso) la riga "Event Coach: 3/6 today" o perché la partita non conta.
 // I pulsanti sono copie di quelli di Batsu (Look.CloneButton). Le cose si nascondono con una CanvasGroup
 // (trasparenti e non cliccabili), mai spegnendole: il codice del sim le trova e le usa come sempre.
 using System;
@@ -30,8 +31,8 @@ namespace OPTCGTrainer
 
         static GameplayLogicScript game;
         static float nextFind;
-        static GameObject noteButton, focusButton, endBox, endButton, panel;
-        static TextMeshProUGUI endStatus, panelTitle, panelFooter;
+        static GameObject noteButton, focusButton, endBox, endButton, panel, coachStrip;
+        static TextMeshProUGUI endStatus, panelTitle, panelFooter, coachLine;
         static TMP_InputField input;
         static int noteLine, noteTurn, generation = -1;
         static bool openWhenReady, focusApplied, wasInGame;
@@ -121,7 +122,7 @@ namespace OPTCGTrainer
                 noteButton.transform.position = cancel + step * 2.3f;
                 focusButton = Look.CloneButton(download, "OPTCGTrainerFocus", "Focus mode", Look.Blue, ToggleFocus);
                 focusButton.transform.position = cancel + step * 3.3f;
-                foreach (var go in new[] { noteButton, focusButton }) NoLayout(go);
+                foreach (var go in new[] { noteButton, focusButton }) { NoLayout(go); BehindPreview(go); }
 
                 BuildEnd(download);
                 BuildPanel(download);
@@ -142,6 +143,16 @@ namespace OPTCGTrainer
         {
             var le = go.GetComponent<LayoutElement>() ?? go.AddComponent<LayoutElement>();
             le.ignoreLayout = true;
+        }
+
+        // La carta grande che compare col mouse sopra una carta copre i pulsanti di Batsu della colonna di destra:
+        // copre anche i nostri, così l'effetto si legge tutto. Sotto non c'è posto: lì compaiono le scelte 3 e 4
+        // (Attack, gli effetti da attivare, Attach All, Back to Main...). Basta metterli prima della carta tra i figli dello stesso canvas.
+        static void BehindPreview(GameObject go)
+        {
+            var preview = game.img_CardPreview != null ? game.img_CardPreview.transform : null;
+            if (preview == null || preview.parent != go.transform.parent) return;
+            go.transform.SetSiblingIndex(preview.GetSiblingIndex());
         }
 
         static void BuildEnd(GameObject frameTemplate)
@@ -173,6 +184,20 @@ namespace OPTCGTrainer
             endStatus.enableAutoSizing = true;
             endStatus.fontSizeMin = 8;
             endStatus.fontSizeMax = bh * 0.24f;
+            // la riga dell'Event Coach: una striscia blu notte attaccata sotto il riquadro (sopra il tavolo non si leggerebbe)
+            coachStrip = new GameObject("OPTCGTrainerCoachLine", typeof(RectTransform), typeof(Image));
+            var strip = (RectTransform)coachStrip.transform;
+            strip.SetParent(box, false);
+            Look.Place(strip, 0.07f, 0.98f, 0.86f, 0.2f);
+            Frame(coachStrip, frameTemplate);
+            coachStrip.GetComponent<Image>().raycastTarget = false;
+            coachLine = Look.NewText(strip, label, "Coach", bh * 0.2f, TextAlignmentOptions.Center);
+            Look.Place(coachLine.rectTransform, 0.03f, 0.1f, 0.94f, 0.8f);
+            coachLine.enableAutoSizing = true;
+            coachLine.fontSizeMin = 8;
+            coachLine.fontSizeMax = bh * 0.2f;
+            coachLine.textWrappingMode = TextWrappingModes.NoWrap;
+            coachStrip.SetActive(false);
             endBox.SetActive(false);
         }
 
@@ -431,6 +456,9 @@ namespace OPTCGTrainer
             }
             Look.SetLabel(endButton, $"<size=62%>{top}</size>\nOPTCG <color={Look.GoldHex}>TRAINER</color>");
             if (endStatus.text != status) endStatus.text = status;
+            var coach = CoachUi.EndLine(m);
+            if (coachStrip.activeSelf != (coach != null)) coachStrip.SetActive(coach != null);
+            if (coach != null && coachLine.text != coach) coachLine.text = coach;
 
             if (openWhenReady && m.replayId != null && m.PendingNotes == 0)
             {
@@ -470,13 +498,14 @@ namespace OPTCGTrainer
         internal static bool AnyMouseDown => Input.GetMouseButtonDown(0) || Input.GetMouseButtonDown(1) || Input.GetMouseButtonDown(2);
     }
 
-    // Il sim legge H (ordina la mano) e T (ordina il trash) se la sua chat non è attiva: anche mentre scrivi una nota no.
+    // Il sim legge H (ordina la mano) e T (ordina il trash) se la sua chat non è attiva: anche mentre scrivi una nota no,
+    // né mentre scrivi il nome dell'evento nel Setup del coach.
     [HarmonyPatch(typeof(GameplayLogicScript), "HandleKeyboardAction")]
     static class NoKeysWhileTyping
     {
         static bool Prefix()
         {
-            try { return !GameUi.Typing; }
+            try { return !(GameUi.Typing || CoachUi.Typing); }
             catch (Exception) { return true; } // un errore della mod non deve mai fermare il sim
         }
     }

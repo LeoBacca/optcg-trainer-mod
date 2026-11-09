@@ -37,5 +37,7 @@
   <ItemGroup>
     <!-- il logo sta dentro il dll: niente file in più da installare -->
     <EmbeddedResource Include="assets\logo.png" LogicalName="OPTCGTrainer.logo.png" />
+    <!-- le icone dell'Event Coach (si rifanno con tools\icone.ps1 da assets\icone.html) -->
+    <EmbeddedResource Include="assets\icone.png" LogicalName="OPTCGTrainer.icone.png" />
   </ItemGroup>
 </Project>

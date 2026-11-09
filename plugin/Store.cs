@@ -3,6 +3,7 @@
 //   account.json             il collegamento al sito: indirizzo, token del dispositivo, nickname
 //   matches\<id>.json        una partita: il suo log, le note scritte giocando, se e dove è stata caricata
 //   logs\<nome del log>      la copia di ogni log finito
+//   coach.json               l'Event Coach: l'evento, l'archivio, i log di CombatLogs\AutoSaved letti dalla mod (CoachStore.cs)
 // <id> è l'Id del ReplayEvidenceJournal del sim: resta uguale quando il file passa da .partial.log a .log.
 using System;
 using System.Collections.Generic;
@@ -43,6 +44,7 @@ namespace OPTCGTrainer
         public string matchFormat;  // il nome della coda come lo vedi nel menu (Standard, OP18…), se c'è
         public int ladderMatch;     // il numero della partita OPBounty, per le partite di ladder
         public List<NoteItem> notes = new List<NoteItem>();
+        public GameSummary game;    // il riassunto per l'Event Coach (esito, leader, turni…), letto dalla copia del log
 
         [JsonIgnore] public bool Finished => !string.IsNullOrEmpty(backup);
         [JsonIgnore] public int PendingNotes => notes.Count(n => !n.uploaded);
@@ -66,7 +68,7 @@ namespace OPTCGTrainer
             return dir;
         }
 
-        static T Load<T>(string path) where T : class
+        internal static T Load<T>(string path) where T : class
         {
             try
             {
@@ -80,7 +82,7 @@ namespace OPTCGTrainer
         }
 
         // si scrive in un file accanto e poi lo si mette al posto giusto: se il sim si chiude a metà, il file vecchio resta intero
-        static void Save(string path, object value)
+        internal static void Save(string path, object value)
         {
             var tmp = path + ".tmp";
             File.WriteAllText(tmp, JsonConvert.SerializeObject(value, Formatting.Indented));
@@ -124,6 +126,10 @@ namespace OPTCGTrainer
             }
             return list.OrderBy(m => m.finishedAt).ToList();
         }
+
+        /// Tutte le partite che la mod conosce (finite o no).
+        internal static List<MatchFile> AllMatches() =>
+            Directory.GetFiles(Matches, "*.json").Select(f => LoadMatch(Path.GetFileNameWithoutExtension(f))).ToList();
 
         /// Le partite rimaste a metà (il sim si è chiuso o è crashato prima che la mod le registrasse).
         internal static List<MatchFile> Unfinished()

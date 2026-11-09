@@ -5,6 +5,7 @@
 using System.Collections;
 using TMPro;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace OPTCGTrainer
 {
@@ -13,6 +14,7 @@ namespace OPTCGTrainer
         internal static GameObject Instance;
         static GameObject source;
         static TextMeshProUGUI status;
+        static Button statusButton;
 
         // HostJoinScript.Start traduce le scritte del menu ("Button.Patchnotes" → "Patch Notes") qualche istante dopo
         // il caricamento: si copia solo dopo, altrimenti la copia nascerebbe con la chiave al posto della scritta.
@@ -34,9 +36,13 @@ namespace OPTCGTrainer
             if (Instance.activeSelf != source.activeSelf) Instance.SetActive(source.activeSelf);
             if (status == null || !Instance.activeInHierarchy) return;
             var text = Account.Linking ? $"Confirm on the website: code <b>{Account.LinkCode}</b>"
+                : Updater.Text != null ? Updater.Text
                 : Account.Linked ? "Linked as <noparse>" + (Account.Nickname ?? "").Replace("</noparse>", "") + "</noparse>"
                 : Account.LastError ?? "Click to link your OPTCG Trainer account";
             if (status.text != text) status.text = text;
+            // la riga si clicca solo quando offre l'aggiornamento (o di riprovarlo); se no i clic passano come prima
+            bool clickable = !Account.Linking && Updater.Clickable;
+            if (status.raycastTarget != clickable) status.raycastTarget = statusButton.enabled = clickable;
         }
 
         static void Click()
@@ -77,6 +83,10 @@ namespace OPTCGTrainer
             status.fontSizeMax = rect.rect.height * 0.2f;
             status.outlineWidth = 0.18f;
             status.outlineColor = new Color32(10, 20, 45, 255);
+            statusButton = status.gameObject.AddComponent<Button>();
+            statusButton.transition = Selectable.Transition.None;
+            statusButton.onClick.AddListener(Updater.Install);
+            statusButton.enabled = false;
 
             Instance = copy;
             source = patchNotes;

@@ -2,6 +2,11 @@
 //   menu principale  il pulsante OPTCG TRAINER (MenuButton.cs)
 //   in partita       Add note, Focus mode, a fine partita "apri su OPTCG Trainer" (GameUi.cs, Match.cs)
 //   sito             collegamento dell'account e caricamento di log e note (Account.cs, docs/api-sito.md)
+//   aggiornamenti    "Update to x.y.z" sopra il pulsante quando su GitHub c'è una release nuova (Updater.cs)
+//   multiplayer      via sponsor, Discord, Match History e «Open OPBounty» in alto a destra (CleanMultiplayer.cs);
+//                    il codice della stanza di OPBounty messo da solo nel campo di Private (PasteCode.cs)
+//   Event Coach      un piano di partite per un torneo: Setup da Settings, Today e Stats, il riquadro in Private, la riga a fine
+//                    partita (CoachUi.cs e le altre Coach*.cs; i calcoli in Coach.cs, i file in CoachStore.cs e CoachFiles.cs)
 // Non cambia le regole né la rete del sim: aggiunge interfaccia, legge il log, scrive solo file suoi (Store.cs).
 using System;
 using System.Linq;
@@ -19,16 +24,16 @@ namespace OPTCGTrainer
     public class Plugin : BaseUnityPlugin
     {
         public const string Guid = "com.optcgtrainer.mod";
-        public const string Version = "0.3.2";
+        public const string Version = "0.4.0";
         internal static ManualLogSource Log;
         internal static Plugin Instance;
         internal static Sprite LogoSprite;
-        internal static ConfigEntry<bool> FocusMode, FocusFullscreen;
+        internal static ConfigEntry<bool> FocusMode, FocusFullscreen, CheckUpdates, HideMultiplayerExtras, PasteOPBountyCode;
         internal static ConfigEntry<string> WindowBeforeFocus;
         static ConfigEntry<string> site;
         internal static string SiteUrl => site.Value;
         static int missingHooks;
-        GUIStyle warning;
+        GUIStyle warning, updateButton;
         string lastError;
 
         // Tutto quello che la mod usa del sim, in un posto solo: a ogni versione nuova si guarda qui se qualcosa è sparito.
@@ -71,9 +76,33 @@ namespace OPTCGTrainer
             ("OPBMatchManager", "ActiveServerMatchNo"),
             ("GameplayLogicScript", "go_P1Board"),
             ("HostJoinScript", "go_Patchnotes"),
+            ("HostJoinScript", "go_Sponsor"),
+            ("HostJoinScript", "go_Sponsor2"),
+            ("HostJoinScript", "go_SponsorButton1"),
+            ("HostJoinScript", "go_SponsorButton2"),
+            ("HostJoinScript", "go_SponsorButton3"),
+            ("HostJoinScript", "go_MatchHistory"),
+            ("OPBManager", "toggleButtonText"),
+            ("HostJoinScript", "go_IPAddress"),
+            ("HostJoinScript", "tmp_IPAddress"),
+            ("HostJoinScript", "joinCode"),
+            ("HostJoinScript", "roomID"),
             ("ReplayEvidenceJournal", "Path"),
             ("ReplayEvidenceJournal", "Id"),
             ("GameStateVars", "iTurnNumber"),
+            // Event Coach
+            ("HostJoinScript", "go_Settings"),
+            ("HostJoinScript", "go_SettingsCanvas"),
+            ("HostJoinScript", "go_SettingsBackButton"),
+            ("HostJoinScript", "go_Patreon"),
+            ("HostJoinScript", "go_PlayerName"),
+            ("HostJoinScript", "go_OPBounty"),
+            ("HostJoinScript", "go_DeckSelector"),
+            ("HostJoinScript", "go_Multiplayer"),
+            ("CardDatabaseScript", "Instance"),
+            ("CardDatabaseScript", "dict_Cards"),
+            ("CardDefinition", "characterName"),
+            ("CardDefinition", "cardColors"),
         };
 
         void Awake()
@@ -84,10 +113,15 @@ namespace OPTCGTrainer
             site = Config.Bind("Site", "Url", "https://optcgtrainer.com", "The OPTCG Trainer website the mod links to and uploads games to.");
             FocusMode = Config.Bind("Game", "FocusMode", false, "Focus mode: during a game, hide everything except the board, the choices, Back to Main and Concede.");
             FocusFullscreen = Config.Bind("Game", "FocusFullscreen", true, "Focus mode also turns the window into full screen (like F11 in a browser). Turning Focus mode off brings the window back.");
+            CheckUpdates = Config.Bind("Updates", "Check", true, "When OPTCGSim starts, ask GitHub if there's a newer OPTCG Trainer. If there is, the line above the OPTCG TRAINER button offers it: nothing is downloaded until you click.");
             WindowBeforeFocus = Config.Bind("Game", "WindowBeforeFocus", "", "Used by the mod: the window to go back to when Focus mode is turned off. Leave it empty.");
+            HideMultiplayerExtras = Config.Bind("Multiplayer", "HideExtras", true, "Hide the sponsor banner (with its 3 tabs), TCG Match Making (Discord) and Match History on the Multiplayer screen, and the Open OPBounty button at the top right. Play Ranked / Launch OPBounty and everything else stay.");
+            PasteOPBountyCode = Config.Bind("Multiplayer", "PasteOPBountyCode", true, "When the OPBounty program copies a room code for you (PLEASE PASTE LOBBY CODE), put it in the Join field of the Private screen by itself. You still press Join.");
+            DevCommands.Init();
+            // prima di tutto il resto: se una versione nuova del sim rompe la mod, l'aggiornamento che la ripara si trova lo stesso
+            try { Updater.Init(); } catch (Exception e) { Log.LogWarning("aggiornamenti: " + e.Message); }
             CheckHooks();
             LoadLogo();
-            DevCommands.Init();
             Patch();
             try { Match.RecoverLeftovers(); } catch (Exception e) { Log.LogWarning("recupero delle partite: " + e.Message); }
             Account.Init();
@@ -119,6 +153,10 @@ namespace OPTCGTrainer
                 MenuButton.FollowSource();
                 GameUi.Tick();
                 DevCommands.Tick();
+                CleanMultiplayer.Tick();
+                PasteCode.Tick();
+                CoachStore.Tick();
+                CoachUi.Tick();
             }
             catch (Exception e)
             {
@@ -164,14 +202,22 @@ namespace OPTCGTrainer
         }
 
         // Solo se qualcosa non va: dopo un aggiornamento del sim una riga piccola in alto dice che una parte della mod è spenta.
+        // Sotto, se su GitHub c'è una versione nuova, la si offre qui: il pulsante OPTCG TRAINER (con la sua riga) può mancare.
         void OnGUI()
         {
             if (missingHooks == 0) return;
-            warning ??= new GUIStyle(GUI.skin.label) { alignment = TextAnchor.UpperCenter, fontSize = Mathf.RoundToInt(14 * Screen.height / 1080f) };
+            float scale = Screen.height / 1080f;
+            warning ??= new GUIStyle(GUI.skin.label) { alignment = TextAnchor.UpperCenter, fontSize = Mathf.RoundToInt(14 * scale), richText = true };
             var old = GUI.color;
             GUI.color = new Color(1f, 0.55f, 0.45f);
             GUI.Label(new Rect(0, 4, Screen.width, 40), $"OPTCG Trainer {Version}: this OPTCGSim version changed, some mod features are off. Check for a mod update.", warning);
             GUI.color = old;
+            var update = Updater.Text;
+            if (update == null) return;
+            var line = new Rect(Screen.width / 2f - 260 * scale, 28 * scale, 520 * scale, 30 * scale);
+            updateButton ??= new GUIStyle(GUI.skin.button) { fontSize = Mathf.RoundToInt(14 * scale), richText = true };
+            if (!Updater.Clickable) GUI.Label(line, update, warning);
+            else if (GUI.Button(line, update, updateButton)) Updater.Install();
         }
     }
 }

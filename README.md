@@ -1,8 +1,8 @@
 # OPTCG Trainer for OPTCGSim
 
 A mod for [OPTCGSim](https://optcgsim.com) that brings [OPTCG Trainer](https://optcgtrainer.com) inside the sim:
-write notes while you play, play in Focus mode, save a picture of the game to share, and find every game
-already on your OPTCG Trainer account, with your notes at the right moment.
+train for your next event with the Event Coach, write notes while you play, play in Focus mode, save a picture of the
+game to share, and find every game already on your OPTCG Trainer account, with your notes at the right moment.
 
 > **Beta.** Windows only. This is an unofficial fan project, not made or endorsed by Batsu (OPTCGSim) or Bandai.
 
@@ -23,6 +23,21 @@ already on your OPTCG Trainer account, with your notes at the right moment.
 That's it. Play as usual.
 
 ## What you get
+
+**Event Coach.** Getting ready for a regional? Set the event date, the day you want to be ready by and how many games
+you want to play: the coach works out how many games a day, and keeps track of them inside OPTCGSim.
+Open it from *Settings › EVENT COACH* (once your event is set, it's in the main menu too).
+- *Today*: today's games, your streak of days (rest days you plan don't break it) and a 20-level pass up to EVENT READY.
+- *Stats*: a calendar of the games you played, win rate going first and second, matchups by opponent leader,
+  games per week against your plan.
+- Today's goal is right there on the Private screen, and at the end of each game a line tells you if it counted.
+
+Games count if you play them with the mod, in the event format, and they reach turn 3 (ladder, queue and private;
+Solo v Self if you want). Everything stays on your PC, in `%LOCALAPPDATA%\OPTCGTrainer\coach.json`.
+
+![Event Coach statistics](docs/images/coach.jpg)
+
+![Today's goal on the Private screen](docs/images/coach-private.jpg)
 
 **Notes while you play.** *Add note* opens a box over the log: write what you're thinking
 (*"maybe I shouldn't have played X here"*). The note is pinned to that exact moment of the game, even if the game goes on
@@ -50,6 +65,14 @@ Each game also knows its type: ladder (OPBounty), queue, private lobby or Solo, 
 so on OPTCG Trainer you can filter your games by type.
 A copy of every game log is also kept in `%LOCALAPPDATA%\OPTCGTrainer\logs`: OPTCGSim updates delete its own `CombatLogs` folder.
 
+**A cleaner Multiplayer screen.** The sponsor banner, *TCG Match Making* (Discord), *Match History* and the
+*Open OPBounty* button at the top right are hidden: *Play Ranked / Launch OPBounty* and everything else stay. To bring them back, set `HideExtras = false` under `[Multiplayer]`
+in `%LOCALAPPDATA%\OPTCGTrainer\BepInEx\config\com.optcgtrainer.mod.cfg`.
+
+**OPBounty room codes pasted for you.** When the OPBounty program copies a room code for you (*PLEASE PASTE LOBBY CODE*),
+the mod puts it in the code field of the Private screen (the one *Multiplayer* opens). You still press the button to enter.
+The mod only reads that code: it never talks to OPBounty.
+
 ![End of the game](docs/images/end.jpg)
 
 ## What it changes on your PC
@@ -62,15 +85,25 @@ A copy of every game log is also kept in `%LOCALAPPDATA%\OPTCGTrainer\logs`: OPT
 
 - It doesn't change the rules, the cards, the network or anything that decides a game. It only adds buttons and panels on your screen.
 - It never writes into OPTCGSim's own game log.
-- It only talks to `optcgtrainer.com`, and only after you link your account: it uploads your game logs (with the game type) and your notes, nothing else.
+- It talks to `optcgtrainer.com` only after you link your account: it uploads your game logs (with the game type) and your notes, nothing else.
   The link can be removed any time from OPTCG Trainer → Settings → *OPTCGSim linked*.
+- When OPTCGSim starts it asks GitHub (this page) if there's a newer version of the mod. It sends nothing about you or your games.
 - The code is all here: read it, build it yourself if you prefer.
+
+## Updating the mod (from 0.4.0)
+
+When a new version is out, the small line above the **OPTCG TRAINER** button says **Update to x.y.z: click here**.
+Click it: the mod downloads only its own file (`OPTCGTrainer.dll`) from the Releases page, checks it's exactly the one published
+there, and puts it in place. Then restart OPTCGSim. Nothing is downloaded until you click, and your notes and link stay as they are.
+
+Don't want it to ask? Set `Check = false` under `[Updates]` in `%LOCALAPPDATA%\OPTCGTrainer\BepInEx\config\com.optcgtrainer.mod.cfg`.
+On 0.3.x there's no such line: download the new zip once and run **Install OPTCG Trainer** again.
 
 ## When OPTCGSim updates
 
 The mod survives updates: OPTCGSim's patcher keeps `winhttp.dll`, and the rest is outside its folder.
 If an update changes something the mod uses, that part turns itself off and a small line at the top of the screen says so;
-OPTCGSim keeps working as usual. Then check here for a new version.
+OPTCGSim keeps working as usual. When a fixed version is out, the update line above the OPTCG TRAINER button offers it.
 
 ## Uninstall
 
