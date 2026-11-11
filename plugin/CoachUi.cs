@@ -35,9 +35,6 @@ namespace OPTCGTrainer
         static int version, privateDrawn = -1, storeSeen = -1, pageVersion = -1;
         static bool redraw;   // la pagina va rifatta (un clic, una scheda nuova)
 
-        /// Una partita è appena stata registrata, o l'evento è cambiato: alla prossima occhiata si ricalcola.
-        internal static void Invalidate() => dirty = true;
-
         internal static CoachState State
         {
             get
@@ -106,7 +103,8 @@ namespace OPTCGTrainer
             if (!built) TryBuild();
             if (!built) return;
 
-            var st = (menuButton != null && menuButton.transform.parent.gameObject.activeInHierarchy) || (settingsButton != null && settingsButton.activeInHierarchy)
+            // lo stato si ricalcola solo dove si vede (menu, Settings, Private): in partita il canvas del menu resta acceso, Settings no
+            var st = (menuButton != null && host.go_Settings != null && host.go_Settings.activeInHierarchy) || (settingsButton != null && settingsButton.activeInHierarchy)
                 || (host.go_IPAddress != null && host.go_IPAddress.activeInHierarchy) ? State : state;
             bool active = st != null;
 
@@ -318,7 +316,10 @@ namespace OPTCGTrainer
             var last = st.days.Where(d => !d.future).Skip(Math.Max(0, st.days.Count(d => !d.future) - 7)).ToList();
             for (int i = 0; i < last.Count; i++) SmallDay(box, 256 + X + i * 28, 474 + Y, 22, last[i]);
             CoachLook.Write(box, 256 + X + last.Count * 28 + 6, 471 + Y, 200, 26, st.streak == 1 ? "1-day streak" : st.streak + "-day streak", 19, Color.white, true, TextAlignmentOptions.TopLeft, true);
-            CoachLook.Write(box, 220 + X, 504 + Y, 390, 20, $"Pass level {st.level} / {Coach.Levels} · open Event Coach ›", 14, CoachLook.Label);
+            // solo quelle di oggi: una vecchia di cui non ricordi l'esito non deve restare lì per sempre (in Today ci sono tutte)
+            int noResult = st.todayGames.Count(g => g.why == null && g.result == "o");
+            if (noResult > 0) CoachLook.Write(box, 220 + X, 504 + Y, 390, 20, $"{Coach.N(noResult, "game")} without a result · set it in Event Coach ›", 14, CoachLook.Gold);
+            else CoachLook.Write(box, 220 + X, 504 + Y, 390, 20, $"Pass level {st.level} / {Coach.Levels} · open Event Coach ›", 14, CoachLook.Label);
             bg.transform.SetAsFirstSibling();
         }
 
@@ -353,6 +354,12 @@ namespace OPTCGTrainer
             var g = st.games.FirstOrDefault(x => x.ids.Contains(m.id));
             if (g == null) return null;
             if (g.why != null) return $"Event Coach: {g.why}, not counted";
+            // senza esito (connessione saltata, log a metà): conta lo stesso, e l'esito si mette a mano nella pagina del coach
+            return Counted(st) + (g.result == "o" ? " · no result: set it in Event Coach" : "");
+        }
+
+        static string Counted(CoachState st)
+        {
             // niente numero di oggi: il giorno dell'evento, l'obiettivo già raggiunto, un riposo
             if (st.daysToEvent <= 0) return $"Event Coach: {st.total}/{st.goal} games · event day";
             if (st.goalReached) return $"Event Coach: <color={Look.GoldHex}>EVENT READY</color> · {Coach.N(st.total, "game")}";
@@ -386,6 +393,7 @@ namespace OPTCGTrainer
                 if (root == null) return;
                 tab = which;
                 if (which == "setup") ResetSetup();
+                ResetToday();
                 root.SetActive(true);
                 Rebuild();
             }
@@ -469,7 +477,7 @@ namespace OPTCGTrainer
 
         static void Tab(RectTransform p, float x, string label, string which)
         {
-            CoachLook.Button(p, host.go_Settings, x, 98, 150, 52, label, tab == which, () => { tab = which; if (which == "setup") ResetSetup(); redraw = true; }, 19);
+            CoachLook.Button(p, host.go_Settings, x, 98, 150, 52, label, tab == which, () => { tab = which; if (which == "setup") ResetSetup(); ResetToday(); redraw = true; }, 19);
         }
 
         internal static void Card(RectTransform p, float x, float y, float w, float h)

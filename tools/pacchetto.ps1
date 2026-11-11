@@ -11,12 +11,15 @@ $build = Join-Path $root "_tools\build-pacchetto"
 $out = Join-Path $root "dist\OPTCG-Trainer-$version"
 $zip = "$out.zip"
 
-# OPBounty (il programma del ranked) legge il Player.log del sim, dove finiscono anche le righe della mod: nessuna di
-# queste frasi deve mai comparire nel codice della mod, se no una riga nostra potrebbe valere come vittoria o sconfitta
-# (elenco da docs/ricerca-opbounty.md)
+# OPBounty (il programma del ranked) legge il Player.log del sim. Dalla 0.4.1 le righe della mod non ci finiscono piu'
+# (Plugin.QuietInPlayerLog), ma se quel pezzo un giorno non andasse ci tornerebbero: nessuna di queste frasi deve mai
+# comparire nel codice della mod, se no una riga nostra potrebbe valere come stanza, versione, vittoria o sconfitta
+# (elenco da docs/ricerca-opbounty.md, aggiornato a OPBounty 2.7.11)
 $opbounty = 'match ready on Room ID', 'load my deck', 'Host with', 'Join with', 'Return to Main', 'player requests win',
   'player requests loss', 'player conceded', 'opponent conceded', 'OPB_RESULT|', 'match cancelled', 'opponent connection lost',
-  'opponent disconnected', 'Destroy Lobbies', 'Set up Unity Multiplayer', 'Memory Statistics'
+  'opponent disconnected', 'Destroy Lobbies', 'Set up Unity Multiplayer', 'Memory Statistics', 'sim version:', 'Mono path[0]',
+  'Populate Deck Names', 'Load LUD', 'Set LUD to', 'Hand before Mulligan', 'Hand after Mulligan',
+  'chose to mulligan', 'chose to keep', 'ShutdownInProgress', 'ack to lobby'
 $hits = Select-String -Path (Join-Path $root 'plugin\*.cs') -SimpleMatch -Pattern $opbounty
 if ($hits) { $hits | ForEach-Object { "  $($_.Filename):$($_.LineNumber): $($_.Line.Trim())" }; throw 'nel codice della mod ci sono frasi che OPBounty legge nel Player.log' }
 

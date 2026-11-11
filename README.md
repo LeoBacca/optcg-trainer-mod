@@ -31,6 +31,8 @@ Open it from *Settings › EVENT COACH* (once your event is set, it's in the mai
 - *Stats*: a calendar of the games you played, win rate going first and second, matchups by opponent leader,
   games per week against your plan.
 - Today's goal is right there on the Private screen, and at the end of each game a line tells you if it counted.
+- Lost the connection, or the game froze? The game still counts, and in *Today* you say if you **won or lost** it.
+  *Edit* fixes a wrong result, and *+ Add game* adds a game the mod didn't record.
 
 Games count if you play them with the mod, in the event format, and they reach turn 3 (ladder, queue and private;
 Solo v Self if you want). Everything stays on your PC, in `%LOCALAPPDATA%\OPTCGTrainer\coach.json`.
@@ -62,7 +64,8 @@ a card in your opponent's hand is known only if it came from the board or the tr
 **Your games on your account.** When a game ends it goes to your OPTCG Trainer account by itself, with your notes.
 *Open this game in OPTCG Trainer* opens the replay. Games you leave halfway (Back to Main) are uploaded too.
 Each game also knows its type: ladder (OPBounty), queue, private lobby or Solo, and the queue (Standard, OP18…),
-so on OPTCG Trainer you can filter your games by type.
+so on OPTCG Trainer you can filter your games by type. A game is "ladder" when it's a private lobby with the timer
+played while the OPBounty program is open (or when it comes from the OPBounty panel inside the game).
 A copy of every game log is also kept in `%LOCALAPPDATA%\OPTCGTrainer\logs`: OPTCGSim updates delete its own `CombatLogs` folder.
 
 **A cleaner Multiplayer screen.** The sponsor banner, *TCG Match Making* (Discord), *Match History* and the
@@ -71,7 +74,8 @@ in `%LOCALAPPDATA%\OPTCGTrainer\BepInEx\config\com.optcgtrainer.mod.cfg`.
 
 **OPBounty room codes pasted for you.** When the OPBounty program copies a room code for you (*PLEASE PASTE LOBBY CODE*),
 the mod puts it in the code field of the Private screen (the one *Multiplayer* opens). You still press the button to enter.
-The mod only reads that code: it never talks to OPBounty.
+The mod only reads that code: it never talks to OPBounty. And the mod keeps its own log lines out of the game's `Player.log`
+(the file OPBounty reads): its own log is `%LOCALAPPDATA%\OPTCGTrainer\BepInEx\LogOutput.log`.
 
 ![End of the game](docs/images/end.jpg)
 

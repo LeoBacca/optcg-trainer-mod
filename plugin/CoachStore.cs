@@ -215,6 +215,7 @@ namespace OPTCGTrainer
                 list.Add(m.game);
             }
             list.AddRange(Data.imported.Where(x => !known.Contains(x.Key) && x.Value != null).Select(x => x.Value));
+            list.AddRange(Data.added);
 #if DEVTOOLS
             list.AddRange(FakeGames);
 #endif
@@ -222,7 +223,50 @@ namespace OPTCGTrainer
             return list;
         }
 
-        internal static List<CoachGame> Games() => Coach.Games(Summaries(), TimeZoneInfo.Local);
+        internal static List<CoachGame> Games() => Coach.Games(Summaries(), TimeZoneInfo.Local, Data.results);
+
+        // ---- a mano (richiesta di Leo: la connessione salta, il log resta a metà, la mod non parte) ----
+
+        /// L'esito di una partita messo a mano: w o l; null = di nuovo quello che dice il log. Per una partita aggiunta a mano
+        /// cambia il suo esito (null non vale: quella si toglie con RemoveAdded).
+        internal static void SetResult(CoachGame g, string result)
+        {
+            if (g == null || g.ids.Count == 0 || (result != null && result != "w" && result != "l")) return;
+            if (g.added)
+            {
+                var mine = Data.added.FirstOrDefault(a => a.id == g.ids[0]);
+                if (mine == null || result == null) return;
+                mine.result = result;
+            }
+            else
+            {
+                foreach (var id in g.ids) Data.results.Remove(id); // una partita fatta di pezzi ha un esito solo
+                // lo stesso esito che dice il log non è "a mano": basta togliere quello messo prima
+                if (result != null && result != (g.byHand ? g.logResult : g.result)) Data.results[g.ids[0]] = result;
+            }
+            Save();
+            Version++;
+            Plugin.Log.LogInfo($"coach: esito a mano {result ?? "tolto"} ({g.ids[0]})");
+        }
+
+        /// Una partita che la mod non ha registrato: giocata adesso, con l'esito e (se si sanno) il leader dell'avversario e il mio.
+        internal static void AddGame(string result, string oppLeader, string myLeader)
+        {
+            var now = Now.ToUniversalTime();
+            var game = CoachFiles.Added(now, TimeZoneInfo.Local, result, oppLeader, myLeader);
+            Data.added.Add(game);
+            Save();
+            Version++;
+            Plugin.Log.LogInfo($"coach: partita aggiunta a mano ({game.result}, {game.oppLeader ?? "leader ?"})");
+        }
+
+        internal static void RemoveAdded(CoachGame g)
+        {
+            if (g == null || !g.added || Data.added.RemoveAll(a => a.id == g.ids[0]) == 0) return;
+            Save();
+            Version++;
+            Plugin.Log.LogInfo("coach: partita aggiunta a mano tolta");
+        }
 
         // la partita aperta adesso (non ancora finita): da quando, nell'ora del PC
         static DateTime? PlayingSince()

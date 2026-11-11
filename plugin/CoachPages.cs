@@ -13,6 +13,26 @@ namespace OPTCGTrainer
     {
         const string Muted = "#9aa6c2", SoftHex = "#c9d1e3";
 
+        // la lista delle partite di Today: l'esito si può mettere a mano (la connessione salta, il log resta a metà) e una
+        // partita che la mod non ha registrato si può aggiungere (richiesta di Leo)
+        static string rowEdit;       // la riga con i pulsanti dell'esito aperti (id della partita)
+        static int listBack;         // di quante pagine (da 4) si è tornati indietro nella lista
+        static bool listNoResult;    // la lista mostra le partite senza esito di tutto l'evento, non quelle di oggi
+        static bool addOpen;         // il modulo "Add a game" al posto della lista
+        static string addResult, addLeader;
+        static bool addMine = true;  // la partita aggiunta è con il leader dell'evento (se l'evento ne ha uno)
+        static List<string> addLeaders;
+
+        static void ResetToday()
+        {
+            rowEdit = null;
+            listBack = 0;
+            listNoResult = addOpen = false;
+        }
+
+        /// Le partite che contano ma non hanno un esito (da segnare a mano).
+        internal static int NoResult(CoachState st) => st.counted.Count(g => g.result == "o");
+
         // ---- TODAY ----
 
         static void BuildToday(RectTransform p, CoachState st)
@@ -34,13 +54,36 @@ namespace OPTCGTrainer
                 CoachLook.Box(p, 208 + i * (seg + 8), 352, seg, 16, i < st.todayCount ? CoachLook.Gold : CoachLook.Plan, 4);
             if (n == 0) CoachLook.Box(p, 208, 358, 772, 4, CoachLook.Plan, 2);
 
-            var games = st.todayGames;
-            var shown = games.Skip(Math.Max(0, games.Count - 4)).ToList();
-            if (games.Count == 0) CoachLook.Write(p, 208, 388, 772, 26, "No games yet today.", 19, CoachLook.Dim);
-            if (games.Count > 4) CoachLook.Write(p, 600, 548, 200, 22, $"+{games.Count - 4} earlier today", 15, CoachLook.Dim, false, TextAlignmentOptions.TopRight);
-            for (int i = 0; i < shown.Count; i++) GameRow(p, 382 + i * 34, shown[i]);
+            // le partite senza esito: da qui si va a segnarle (anche quelle dei giorni passati)
+            int noResult = NoResult(st);
+            if (noResult == 0) listNoResult = false;
+            if (listNoResult) Link(p, 700, 224, 280, "‹ back to today's games", CoachLook.Soft, () => { listNoResult = false; listBack = 0; rowEdit = null; });
+            else if (noResult > 0) Link(p, 700, 224, 280, $"{Coach.N(noResult, "game")} without a result ›", CoachLook.Gold, () => { listNoResult = true; listBack = 0; rowEdit = null; addOpen = false; });
+
+            if (addOpen) AddForm(p, st);
+            else
+            {
+                // la prima pagina: le ultime 4 di oggi (o quelle senza esito). "earlier" va indietro di 4 in 4, anche nei giorni
+                // prima, dall'inizio del piano: così un esito sbagliato o una partita aggiunta di ieri si possono ancora correggere
+                var games = listNoResult ? st.counted.Where(g => g.result == "o").ToList()
+                    : st.games.Where(g => g.day >= st.start && g.day <= st.today).OrderBy(g => g.startUtc).ToList();
+                int first = Math.Min(4, listNoResult ? games.Count : st.todayGames.Count), before = games.Count - first;
+                int pages = 1 + (before + 3) / 4;
+                listBack = Mathf.Clamp(listBack, 0, pages - 1);
+                int end = listBack == 0 ? games.Count : before - 4 * (listBack - 1), from = listBack == 0 ? before : Math.Max(0, end - 4);
+                var shown = games.Skip(from).Take(end - from).ToList();
+                if (shown.Count == 0) CoachLook.Write(p, 208, 388, 772, 26, "No games yet today.", 19, CoachLook.Dim);
+                for (int i = 0; i < shown.Count; i++) GameRow(p, 382 + i * 34, shown[i], shown[i].day != st.today);
+                if (listBack < pages - 1) Pill(p, 548, 541, 82, 28, "‹ earlier", CoachLook.Plan, CoachLook.Soft, () => { listBack++; rowEdit = null; });
+                if (listBack > 0) Pill(p, 634, 541, 68, 28, "later ›", CoachLook.Plan, CoachLook.Soft, () => { listBack--; rowEdit = null; });
+            }
             if (st.ev.leader != null)
-                CoachLook.Write(p, 208, 546, 560, 24, $"With {LeaderName(st.ev.leader, st.leaderName)}: {st.withLeaderToday.games} of {st.todayRecord.games} · today {st.withLeaderToday.wins}–{st.withLeaderToday.losses}", 17, CoachLook.Label);
+            {
+                var withLine = CoachLook.Write(p, 208, 546, 330, 24, $"With {LeaderName(st.ev.leader, st.leaderName)}: {st.withLeaderToday.games} of {st.todayRecord.games} · today {st.withLeaderToday.wins}–{st.withLeaderToday.losses}", 17, CoachLook.Label);
+                withLine.overflowMode = TextOverflowModes.Ellipsis; // accanto ci sono i pulsanti della lista
+            }
+            if (!addOpen && !st.beforeStart)
+                Pill(p, 706, 541, 104, 28, "+ ADD GAME", CoachLook.Plan, Color.white, () => { addOpen = true; listNoResult = false; addResult = null; addLeader = null; addLeaders = null; addMine = true; rowEdit = null; });
             CoachLook.Button(p, host.go_Settings, 818, 532, 162, 46, "PLAY", true, Play, 21);
 
             // i giorni che mancano
@@ -105,19 +148,95 @@ namespace OPTCGTrainer
             return lo == hi ? $"{lo} games" : $"{Math.Max(1, lo)}–{hi} games";
         }
 
-        static void GameRow(RectTransform p, float y, CoachGame g)
+        // una riga della lista: l'esito, l'avversario, i numeri, l'ora (o il giorno, nella lista delle partite senza esito).
+        // Senza esito: WON / LOST lì accanto. Con un esito: "edit" apre gli stessi pulsanti (il log può sbagliare).
+        static void GameRow(RectTransform p, float y, CoachGame g, bool withDay)
         {
-            bool counts = g.why == null;
+            bool counts = g.why == null, open = counts && rowEdit == g.ids[0], unknown = counts && g.result == "o";
             var chip = !counts ? CoachLook.Unknown : g.result == "w" ? CoachLook.Win : g.result == "l" ? CoachLook.Loss : CoachLook.Unknown;
             CoachLook.Box(p, 208, y + 4, 28, 28, chip, 4);
-            CoachLook.Write(p, 208, y + 4, 28, 28, counts && g.result == "w" ? "W" : counts && g.result == "l" ? "L" : "–", 16, counts ? Color.white : CoachLook.Soft, true, TextAlignmentOptions.Center);
+            CoachLook.Write(p, 208, y + 4, 28, 28, counts && g.result == "w" ? "W" : counts && g.result == "l" ? "L" : unknown ? "?" : "–", 16, counts ? Color.white : CoachLook.Soft, true, TextAlignmentOptions.Center);
             var color = counts ? CoachLook.Text : CoachLook.Dim;
-            CoachLook.Write(p, 250, y + 6, 300, 26, "vs " + LeaderName(g.oppLeader, g.oppLeaderName), 19, color);
-            string det = counts
-                ? $"{g.turns} turns · {(g.minutes != null ? (g.minutes.Value < 0.5 ? "<1" : Math.Round(g.minutes.Value).ToString(CultureInfo.InvariantCulture)) + " min · " : "")}{(g.first == 1 ? "went first" : g.first == 2 ? "went second" : "")}".TrimEnd(' ', '·')
-                : g.why + ", not counted";
-            CoachLook.Write(p, 550, y + 8, 360, 24, det, 17, counts ? CoachLook.Label : CoachLook.Dim);
-            CoachLook.Write(p, 880, y + 9, 100, 22, g.startLocal.ToString("HH:mm", CultureInfo.InvariantCulture), 16, CoachLook.Dim, false, TextAlignmentOptions.TopRight);
+            var vs = CoachLook.Write(p, 250, y + 6, 272, 26, "vs " + (g.oppLeader == null ? "unknown leader" : LeaderName(g.oppLeader, g.oppLeaderName)), 19, color);
+            vs.overflowMode = TextOverflowModes.Ellipsis;
+            void Set(string result) { CoachStore.SetResult(g, result); rowEdit = null; }
+            if (open || unknown)
+            {
+                float x = 530;
+                if (unknown && !open) { CoachLook.Write(p, x, y + 8, 84, 24, "no result:", 17, CoachLook.Gold); x += 88; }
+                Pill(p, x, y + 4, 66, 28, "WON", g.result == "w" ? CoachLook.Win : CoachLook.Plan, Color.white, () => Set("w"));
+                Pill(p, x + 70, y + 4, 66, 28, "LOST", g.result == "l" ? CoachLook.Loss : CoachLook.Plan, Color.white, () => Set("l"));
+                // di nuovo come dice il log (se l'esito era stato messo a mano), o via la partita aggiunta a mano
+                if (open && g.added) Pill(p, x + 140, y + 4, 84, 28, "REMOVE", CoachLook.Plan, CoachLook.Warn, () => { CoachStore.RemoveAdded(g); rowEdit = null; });
+                else if (open && g.byHand) Pill(p, x + 140, y + 4, 84, 28, "UNDO", CoachLook.Plan, CoachLook.Soft, () => Set(null));
+            }
+            else
+            {
+                string det = !counts ? g.why + ", not counted"
+                    : g.added ? "added by hand"
+                    : $"{g.turns} turns · {(g.minutes != null ? (g.minutes.Value < 0.5 ? "<1" : Math.Round(g.minutes.Value).ToString(CultureInfo.InvariantCulture)) + " min · " : "")}{(g.first == 1 ? "went first" : g.first == 2 ? "went second" : "")}".TrimEnd(' ', '·')
+                        + (g.byHand ? " · by hand" : "");
+                CoachLook.Write(p, 530, y + 8, 330, 24, det, 17, counts ? CoachLook.Label : CoachLook.Dim).overflowMode = TextOverflowModes.Ellipsis;
+            }
+            CoachLook.Write(p, 836, y + 9, 86, 22, g.startLocal.ToString(withDay ? "d MMM" : "HH:mm", CultureInfo.InvariantCulture), 16, CoachLook.Dim, false, TextAlignmentOptions.TopRight);
+            if (open) Pill(p, 932, y + 4, 48, 28, "close", CoachLook.Card, CoachLook.Label, () => rowEdit = null);
+            else if (counts && !unknown) Pill(p, 932, y + 4, 48, 28, "edit", CoachLook.Card, CoachLook.Label, () => rowEdit = g.ids[0]);
+        }
+
+        // "Add a game", al posto della lista: una partita che la mod non ha registrato (sim aperto senza la mod, mod rotta da un
+        // aggiornamento). Si sceglie l'esito e, se si vuole, il leader dell'avversario; vale per oggi.
+        static void AddForm(RectTransform p, CoachState st)
+        {
+            CoachLook.Caps(p, 208, 386, 500, "Add a game the mod didn't record", 13);
+            CoachLook.Write(p, 208, 420, 100, 24, "Result", 17, CoachLook.Soft);
+            Pill(p, 316, 414, 92, 34, "WON", addResult == "w" ? CoachLook.Win : CoachLook.Plan, Color.white, () => addResult = "w", 16);
+            Pill(p, 414, 414, 92, 34, "LOST", addResult == "l" ? CoachLook.Loss : CoachLook.Plan, Color.white, () => addResult = "l", 16);
+            CoachLook.Write(p, 208, 466, 100, 24, "Opponent", 17, CoachLook.Soft);
+            addLeaders ??= OpponentLeaders();
+            var names = new List<string> { "Unknown leader" };
+            names.AddRange(addLeaders.Select(id => $"{LeaderName(id)} · {id}"));
+            Dropdown(p, 316, 462, 330, names, Math.Max(0, addLeaders.IndexOf(addLeader) + 1), i => addLeader = i == 0 ? null : addLeaders[i - 1], 17);
+            // con il leader dell'evento, di base sì (si toglie se quella partita l'hai giocata con un altro mazzo)
+            string mine = st.ev.leader != null && addMine ? st.ev.leader : null;
+            if (st.ev.leader != null) Check(p, 668, 458, "with " + Coach.Short(LeaderName(st.ev.leader, st.leaderName), 22), addMine, on => addMine = on);
+            CoachLook.Write(p, 208, 508, 600, 22, "It counts for today, like a game played now.", 15, CoachLook.Dim);
+            if (addResult != null)
+                CoachLook.Button(p, host.go_Settings, 690, 412, 140, 40, "ADD", true, () => { CoachStore.AddGame(addResult, addLeader, mine); addOpen = false; listBack = 0; listNoResult = false; redraw = true; }, 18);
+            else CoachLook.Write(p, 660, 420, 200, 24, "pick the result", 15, CoachLook.Dim);
+            Pill(p, 846, 414, 84, 34, "cancel", CoachLook.Card, CoachLook.Label, () => addOpen = false, 15);
+        }
+
+        // i leader per "Add a game": prima quelli già incontrati (i più frequenti), poi tutti gli altri del database delle carte
+        static List<string> OpponentLeaders()
+        {
+            var met = new Dictionary<string, int>();
+            try
+            {
+                foreach (var g in CoachStore.Games().Where(g => g.oppLeader != null && g.Kind != "solo"))
+                    met[g.oppLeader] = met.TryGetValue(g.oppLeader, out var n) ? n + 1 : 1;
+                var db = CardDatabaseScript.Instance;
+                if (db != null && db.dict_Cards != null)
+                    foreach (var card in db.dict_Cards)
+                        if (card.Value != null && card.Value.cardDefinition != null && card.Value.cardDefinition.cardType == CardType.Leader && !met.ContainsKey(card.Key))
+                            met[card.Key] = 0;
+            }
+            catch (Exception e) { Plugin.Log.LogWarning("coach: leader non letti: " + e.Message); }
+            return met.OrderByDescending(kv => kv.Value).ThenBy(kv => LeaderName(kv.Key)).ThenBy(kv => kv.Key).Select(kv => kv.Key).ToList();
+        }
+
+        // un pulsante piccolo dei nostri (i pulsanti di Batsu così piccoli hanno la cornice troppo spessa): fondo tondo e scritta
+        static void Pill(RectTransform p, float x, float y, float w, float h, string label, Color fill, Color text, Action click, float size = 14)
+        {
+            CoachLook.Box(p, x, y, w, h, fill, 4);
+            CoachLook.Write(p, x, y, w, h, label, size, text, true, TextAlignmentOptions.Center);
+            CoachLook.Hot(p, x, y, w, h, () => { click(); redraw = true; });
+        }
+
+        // una scritta che si clicca, allineata a destra
+        static void Link(RectTransform p, float x, float y, float w, string label, Color color, Action click)
+        {
+            CoachLook.Write(p, x, y, w, 22, label, 15, color, false, TextAlignmentOptions.TopRight);
+            CoachLook.Hot(p, x + w - 240, y - 3, 240, 28, () => { click(); redraw = true; });
         }
 
         // un giorno degli ultimi 14: oro con la spunta = fatto, × = mancato, a righe = riposo, oggi con il bordo e quanto manca

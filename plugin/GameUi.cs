@@ -83,6 +83,7 @@ namespace OPTCGTrainer
             if (inGame != wasInGame)
             {
                 wasInGame = inGame;
+                if (inGame) CoachUi.Close(); // la pagina del coach aperta mentre ci si collega non deve restare sopra la partita
                 if (inGame && Plugin.FocusMode.Value) Fullscreen(true);
             }
 
@@ -446,7 +447,8 @@ namespace OPTCGTrainer
             else if (m.replayId == null)
             {
                 top = "UPLOADING TO";
-                status = Account.LastError ?? $"Saving this game to {Safe(Account.Nickname)}'s account…";
+                status = Account.LastError ?? (Account.Later(m) ? "Not saved yet: it will retry the next time you open OPTCGSim."
+                    : $"Saving this game to {Safe(Account.Nickname)}'s account…");
             }
             else
             {

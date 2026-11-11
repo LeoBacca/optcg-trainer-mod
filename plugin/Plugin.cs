@@ -24,7 +24,7 @@ namespace OPTCGTrainer
     public class Plugin : BaseUnityPlugin
     {
         public const string Guid = "com.optcgtrainer.mod";
-        public const string Version = "0.4.0";
+        public const string Version = "0.4.1";
         internal static ManualLogSource Log;
         internal static Plugin Instance;
         internal static Sprite LogoSprite;
@@ -34,7 +34,13 @@ namespace OPTCGTrainer
         internal static string SiteUrl => site.Value;
         static int missingHooks;
         GUIStyle warning, updateButton;
-        string lastError;
+        // i pezzi della mod che girano a ogni fotogramma, ognuno per conto suo: se uno va in errore (versione nuova del sim) gli altri continuano
+        static readonly (string name, Action tick)[] Ticks =
+        {
+            ("menu", MenuButton.FollowSource), ("partita", GameUi.Tick), ("telecomando", DevCommands.Tick), ("multiplayer", CleanMultiplayer.Tick),
+            ("incolla", PasteCode.Tick), ("coach", CoachStore.Tick), ("schermate del coach", CoachUi.Tick),
+        };
+        readonly string[] lastError = new string[Ticks.Length];
 
         // Tutto quello che la mod usa del sim, in un posto solo: a ogni versione nuova si guarda qui se qualcosa è sparito.
         static readonly (string type, string member)[] Hooks =
@@ -72,6 +78,7 @@ namespace OPTCGTrainer
             ("GameplayLogicScript", "e_GameStyle"),
             ("GameplayLogicScript", "eMultiStyle"),
             ("GameplayLogicScript", "isPrivate"),
+            ("GameplayLogicScript", "isTimerLobby"),
             ("GameplayLogicScript", "tls_Translation"),
             ("OPBMatchManager", "ActiveServerMatchNo"),
             ("GameplayLogicScript", "go_P1Board"),
@@ -103,12 +110,14 @@ namespace OPTCGTrainer
             ("CardDatabaseScript", "dict_Cards"),
             ("CardDefinition", "characterName"),
             ("CardDefinition", "cardColors"),
+            ("CardDefinition", "cardType"),
         };
 
         void Awake()
         {
             Log = Logger;
             Instance = this;
+            QuietInPlayerLog();
             Log.LogInfo($"OPTCG Trainer {Version} su Unity {Application.version} / {Application.unityVersion}");
             site = Config.Bind("Site", "Url", "https://optcgtrainer.com", "The OPTCG Trainer website the mod links to and uploads games to.");
             FocusMode = Config.Bind("Game", "FocusMode", false, "Focus mode: during a game, hide everything except the board, the choices, Back to Main and Concede.");
@@ -131,11 +140,28 @@ namespace OPTCGTrainer
             };
         }
 
+        // BepInEx copia ogni sua riga di log anche nel Player.log del sim, e il programma OPBounty legge proprio quel file per
+        // capire la stanza creata, chi è entrato e chi ha vinto (docs/ricerca-opbounty.md). Da qui in poi le righe della mod
+        // vanno solo nel file di BepInEx (LogOutput.log nella cartella di BepInEx): per OPBounty il log è quello di un sim senza mod.
+        static void QuietInPlayerLog()
+        {
+            try
+            {
+                foreach (var listener in BepInEx.Logging.Logger.Listeners.OfType<UnityLogListener>().ToList())
+                    BepInEx.Logging.Logger.Listeners.Remove(listener);
+            }
+            catch (Exception e) { Log.LogWarning("le righe della mod restano anche nel Player.log: " + e.Message); }
+        }
+
         // un aggancio alla volta: se uno non va (versione nuova del sim), gli altri funzionano lo stesso e il sim non si ferma
         static void Patch()
         {
             var harmony = new Harmony(Guid);
-            foreach (var type in typeof(Plugin).Assembly.GetTypes().Where(t => t.GetCustomAttributes(typeof(HarmonyPatch), false).Length > 0))
+            Type[] types;
+            // se un tipo della mod non si carica (un tipo di Batsu sparito), restano tutti gli altri
+            try { types = typeof(Plugin).Assembly.GetTypes(); }
+            catch (ReflectionTypeLoadException e) { missingHooks++; types = e.Types.Where(t => t != null).ToArray(); Log.LogError("tipi della mod non caricati: " + e.Message); }
+            foreach (var type in types.Where(t => t.GetCustomAttributes(typeof(HarmonyPatch), false).Length > 0))
             {
                 try { harmony.CreateClassProcessor(type).Patch(); }
                 catch (Exception e)
@@ -148,22 +174,16 @@ namespace OPTCGTrainer
 
         void Update()
         {
-            try
+            for (int i = 0; i < Ticks.Length; i++)
             {
-                MenuButton.FollowSource();
-                GameUi.Tick();
-                DevCommands.Tick();
-                CleanMultiplayer.Tick();
-                PasteCode.Tick();
-                CoachStore.Tick();
-                CoachUi.Tick();
-            }
-            catch (Exception e)
-            {
-                // un errore della mod non deve mai fermare il sim: si scrive nel log (la prima volta, poi ogni tanto) e si va avanti
-                var text = e.ToString();
-                if (text != lastError || Time.frameCount % 600 == 0) Log.LogError(e);
-                lastError = text;
+                try { Ticks[i].tick(); }
+                catch (Exception e)
+                {
+                    // un errore della mod non deve mai fermare il sim: si scrive nel log (la prima volta, poi ogni tanto) e si va avanti
+                    var text = e.ToString();
+                    if (text != lastError[i] || Time.frameCount % 600 == 0) Log.LogError(Ticks[i].name + ": " + text);
+                    lastError[i] = text;
+                }
             }
         }
 

@@ -142,6 +142,7 @@ namespace OPTCGTrainer
                     foreach (var m in Store.ToUpload(Site))
                     {
                         if (!Linked) yield break;
+                        if (later.Contains(m.id)) continue;
                         if (m.replayId == null) yield return UploadLog(m);
                         if (m.replayId != null && m.PendingNotes > 0) yield return UploadNotes(m);
                         if (LastError != null) yield break; // il sito non risponde: si riprova alla prossima partita o al prossimo avvio
@@ -150,6 +151,11 @@ namespace OPTCGTrainer
             }
             finally { uploading = false; }
         }
+
+        // le partite a cui il sito ha risposto in un modo strano (un 403 o un 404 di un proxy, una manutenzione): non si
+        // segnano come rifiutate per sempre e non fermano le altre; si riprovano al prossimo avvio del sim
+        static readonly System.Collections.Generic.HashSet<string> later = new System.Collections.Generic.HashSet<string>();
+        internal static bool Later(MatchFile m) => later.Contains(m.id);
 
         static IEnumerator UploadLog(MatchFile m)
         {
@@ -181,8 +187,9 @@ namespace OPTCGTrainer
             Plugin.Log.LogWarning($"caricamento di {m.logName}: {req.Status} {req.Problem}");
             if (req.Status == 401) { Unlinked(); yield break; }
             if (req.Ok || Temporary(req.Status)) { LastError = Unreachable(req); yield break; }
-            // il sito non la vuole e non la vorrà mai: si segna e si passa alla prossima
-            m.uploadError = req.Status == 400 ? "it's too short to be a game" : req.Status == 413 ? "its log is too big" : "the website refused it";
+            if (req.Status != 400 && req.Status != 413) { later.Add(m.id); yield break; }
+            // il sito non la vuole e non la vorrà mai (troppo corta, troppo grande): si segna e si passa alla prossima
+            m.uploadError = req.Status == 400 ? "it's too short to be a game" : "its log is too big";
             Store.SaveMatch(m);
         }
 
@@ -197,6 +204,8 @@ namespace OPTCGTrainer
                 yield return req.Send();
                 if (req.Status == 401) { Unlinked(); yield break; }
                 if (!req.Ok && Temporary(req.Status)) { LastError = Unreachable(req); yield break; }
+                // una risposta strana: la nota resta da caricare (l'ha scritta il giocatore), si riprova al prossimo avvio
+                if (!req.Ok && req.Status != 400 && req.Status != 403 && req.Status != 404) { later.Add(m.id); yield break; }
                 // caricata, oppure il sito non la vorrà mai (replay cancellato, riga fuori dal log, troppe note): non si riprova
                 if (!req.Ok) Plugin.Log.LogWarning($"nota scartata dal sito: {req.Status} {req.Problem}");
                 note.uploaded = true;

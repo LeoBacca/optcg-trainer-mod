@@ -110,6 +110,14 @@ namespace OPTCGTrainer
         }
 
         internal static void SaveMatch(MatchFile m) => Save(MatchPath(m.id), m);
+
+        /// Via il file di una partita che non vale la pena tenere (se c'è).
+        internal static void ForgetMatch(MatchFile m)
+        {
+            cache.Remove(m.id);
+            try { File.Delete(MatchPath(m.id)); }
+            catch (Exception e) { Plugin.Log.LogWarning("file della partita non cancellato: " + e.Message); }
+        }
         static string MatchPath(string id) => Path.Combine(Matches, Safe(id) + ".json");
 
         /// Le partite finite che hanno ancora qualcosa da caricare su questo sito (il log o delle note), dalla più vecchia.

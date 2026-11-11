@@ -21,6 +21,8 @@ namespace OPTCGTrainer
         public CoachEvent active;
         public List<ArchivedEvent> archive = new List<ArchivedEvent>();
         public Dictionary<string, GameSummary> imported = new Dictionary<string, GameSummary>(); // per id del log
+        public Dictionary<string, string> results = new Dictionary<string, string>();           // l'esito messo a mano: id del log → w o l
+        public List<GameSummary> added = new List<GameSummary>();                                // le partite aggiunte a mano (la mod non le ha registrate)
     }
 
     static class CoachFiles
@@ -65,6 +67,9 @@ namespace OPTCGTrainer
             data ??= new CoachFile();
             data.archive ??= new List<ArchivedEvent>();
             data.imported ??= new Dictionary<string, GameSummary>();
+            data.results ??= new Dictionary<string, string>();
+            data.added ??= new List<GameSummary>();
+            data.added.RemoveAll(g => g == null || g.id == null);
             if (data.active != null)
             {
                 data.active.restDays ??= new List<string>();
@@ -98,6 +103,17 @@ namespace OPTCGTrainer
             foreach (var id in old) data.imported.Remove(id);
             return old.Count;
         }
+
+        /// Una partita aggiunta a mano: giocata adesso (conta per il giorno del coach di adesso), con l'esito e, se si sa,
+        /// il leader dell'avversario e il mio. Niente log, niente turni, niente durata.
+        internal static GameSummary Added(DateTime nowUtc, TimeZoneInfo tz, string result, string oppLeader, string myLeader = null) =>
+            new GameSummary
+            {
+                v = GameSummary.Current, id = "hand-" + Guid.NewGuid().ToString("N"), added = true, ended = true,
+                startedAt = Coach.Iso(nowUtc), endedAt = Coach.Iso(nowUtc), day = Coach.DayKey(nowUtc, tz),
+                result = result == "w" || result == "l" ? result : "o", reason = "by hand",
+                oppLeader = string.IsNullOrEmpty(oppLeader) ? null : oppLeader, myLeader = string.IsNullOrEmpty(myLeader) ? null : myLeader,
+            };
 
         /// Di un log senza leader (il menu, un Quits!) basta ricordare che è già stato letto: id, nome, dimensione, inizio.
         internal static GameSummary Slim(GameSummary s) =>

@@ -47,6 +47,7 @@ namespace OPTCGTrainer
         public string format;        // il nome della coda come nel menu (Standard, OP18…), se la mod l'ha visto
         public bool imported;        // letto da CombatLogs\AutoSaved: la mod non l'ha registrato giocando
         public long size;            // per i log importati: la dimensione letta (se cambia, si rilegge)
+        public bool added;           // aggiunta a mano dal giocatore (la mod non l'ha registrata): non c'è nessun log
     }
 
     /// L'evento: quello attivo (uno alla volta) o uno dell'archivio. Le date sono giorni "yyyy-MM-dd" del coach.
@@ -85,6 +86,9 @@ namespace OPTCGTrainer
         public string result, reason, myLeader, myLeaderName, oppLeader, oppLeaderName, kind, format;
         public int first, turns, ladderMatch;
         public bool noNames, imported;
+        public bool added;           // aggiunta a mano (niente log): conta sempre, nei giorni del piano
+        public bool byHand;          // l'esito l'ha messo il giocatore (logResult: quello che dice il log)
+        public string logResult;
         public double? minutes;      // null se non si sa (o se è assurda: zero, o più di 3 ore)
         public string why;           // null = conta per l'evento; se no il perché, in inglese come lo vedrà il giocatore
         public string Kind => kind ?? (ladderMatch > 0 ? "ladder" : noNames ? "solo" : null);
@@ -311,13 +315,15 @@ namespace OPTCGTrainer
         /// Dai log alle partite: in ordine di inizio, il log di un turno rifatto si attacca alla partita del log appena prima,
         /// se quella non è chiusa (niente riga END) e ha gli stessi due leader. Un pezzo senza la partita di prima non diventa
         /// mai una partita a sé: sarebbe una partita "corta" che non c'è (o una partita contata due volte).
-        internal static List<CoachGame> Games(IEnumerable<GameSummary> logs, TimeZoneInfo tz)
+        /// results: gli esiti messi a mano (id del log → w o l), che valgono più di quello che dice il log. Le partite aggiunte
+        /// a mano (added) non hanno un log: non entrano nella catena dei pezzi, si aggiungono in fondo così come sono.
+        internal static List<CoachGame> Games(IEnumerable<GameSummary> logs, TimeZoneInfo tz, IDictionary<string, string> results = null)
         {
             var list = new List<CoachGame>();
             CoachGame last = null;
             bool lastEnded = true;
-            var sorted = logs.Where(s => s != null && (s.myLeader != null || s.oppLeader != null) && Utc(s.startedAt) != null)
-                .OrderBy(s => Utc(s.startedAt).Value);
+            var all = logs.Where(s => s != null && Utc(s.startedAt) != null).ToList();
+            var sorted = all.Where(s => !s.added && (s.myLeader != null || s.oppLeader != null)).OrderBy(s => Utc(s.startedAt).Value);
             foreach (var s in sorted)
             {
                 var start = Utc(s.startedAt).Value;
@@ -361,6 +367,28 @@ namespace OPTCGTrainer
                 lastEnded = s.ended;
                 list.Add(last);
             }
+            if (results != null)
+                foreach (var g in list)
+                {
+                    var by = g.ids.Where(id => id != null && results.ContainsKey(id)).Select(id => results[id]).FirstOrDefault(r => r == "w" || r == "l");
+                    if (by == null) continue;
+                    g.logResult = g.result;
+                    g.result = by;
+                    g.byHand = true;
+                }
+            foreach (var s in all.Where(s => s.added && s.id != null))
+            {
+                var at = Utc(s.startedAt).Value;
+                var g = new CoachGame
+                {
+                    startUtc = at, endUtc = at, result = s.result == "w" || s.result == "l" ? s.result : "o", reason = "by hand",
+                    myLeader = s.myLeader, myLeaderName = s.myLeaderName, oppLeader = s.oppLeader, oppLeaderName = s.oppLeaderName,
+                    kind = s.kind, format = s.format, day = Day(s.day) ?? default, added = true, byHand = true,
+                };
+                g.ids.Add(s.id);
+                list.Add(g);
+            }
+            list.Sort((a, b) => a.startUtc.CompareTo(b.startUtc));
             foreach (var g in list)
             {
                 g.startLocal = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(g.startUtc, DateTimeKind.Utc), tz);
@@ -469,6 +497,8 @@ namespace OPTCGTrainer
         {
             if (g.day < p.start) return "before the plan started";
             if (g.day > p.eventDay) return "after the event";
+            // aggiunta a mano: la mod non andava, il giocatore dice che l'ha giocata. Conta e basta (tipo, formato e turni non si sanno)
+            if (g.added) return null;
             // la mod non c'era (sim aperto senza la mod): non si sa il formato né se era queue o private
             if (g.imported) return "played without the mod";
             return Rules(ev, g);

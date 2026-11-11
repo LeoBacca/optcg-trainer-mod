@@ -58,22 +58,55 @@ namespace OPTCGTrainer
             if (game.gsv_CurrentGame == null || Journal(game) == null) return;
             var m = ForGame(game);
             if (m == null || m.Finished) return;
-            if (game.gsv_CurrentGame.iTurnNumber > m.maxTurn) m.maxTurn = game.gsv_CurrentGame.iTurnNumber;
+            if (game.gsv_CurrentGame.iTurnNumber > m.maxTurn)
+            {
+                bool started = m.maxTurn < 1;
+                m.maxTurn = game.gsv_CurrentGame.iTurnNumber;
+                Describe(game, m);
+                // la partita è cominciata davvero: il suo file si scrive adesso. Se il sim crasha o viene chiuso di forza a metà,
+                // al prossimo avvio RecoverLeftovers la ritrova (prima andava persa: niente sito, e per il coach "senza la mod")
+                if (started) Store.SaveMatch(m);
+                return;
+            }
             Describe(game, m);
         }
 
-        /// Il tipo di partita, come lo sa il sim: Solo v Self; ladder se è una partita OPBounty (ha il suo numero, che il sim
-        /// scrive anche nel log, riga RZ1|META); lobby privata con codice; altrimenti la coda pubblica del formato scelto.
-        /// Si ricontrolla finché la partita non finisce: il numero OPBounty può arrivare qualche istante dopo l'inizio.
+        /// Il tipo di partita, come lo sa il sim: Solo v Self; ladder se è una partita OPBounty; lobby privata con codice;
+        /// altrimenti la coda pubblica del formato scelto. Una partita OPBounty si riconosce in due modi: dal pannello
+        /// OPBounty dentro il sim ha il suo numero (che il sim scrive anche nel log, riga RZ1|META); dal programma OPBounty
+        /// (quello di "Play Ranked", che usa Leo) è una lobby privata con il timer, giocata con il programma aperto
+        /// (scelta di Leo: una partita con il timer contro un amico, con OPBounty aperto, risulta ladder anche lei).
+        /// Si ricontrolla finché la partita non finisce: il numero OPBounty e il timer di chi entra arrivano dopo l'inizio.
         static void Describe(GameplayLogicScript game, MatchFile m)
         {
             int ladder = OPBMatchManager.ActiveServerMatchNo;
-            string kind = game.e_GameStyle == GameStyle.SoloVSelf ? "solo" : ladder > 0 ? "ladder" : game.isPrivate ? "private" : "queue";
+            bool solo = game.e_GameStyle == GameStyle.SoloVSelf;
+            bool ranked = ladder > 0 || (!solo && game.isPrivate && game.isTimerLobby && OPBountyOpen(m));
+            string kind = solo ? "solo" : ranked ? "ladder" : game.isPrivate ? "private" : "queue";
             if (kind == m.matchKind && (kind != "ladder" || m.ladderMatch == ladder)) return;
             m.matchKind = kind;
             m.ladderMatch = kind == "ladder" ? ladder : 0;
             m.matchFormat = kind == "solo" || game.eMultiStyle == MultiplayerStyle.Private ? null : FormatName(game);
             Plugin.Log.LogInfo($"tipo di partita: {m.matchKind}{(m.matchFormat != null ? " · " + m.matchFormat : "")}{(m.ladderMatch > 0 ? " · OPBounty " + m.ladderMatch : "")}");
+        }
+
+        static string openFor;   // la partita durante la quale il programma OPBounty è stato visto aperto (se poi lo chiudi, vale lo stesso)
+        static float nextLook;
+
+        // il programma OPBounty è aperto? Si guarda al più ogni 5 secondi, e solo per le lobby private con il timer
+        static bool OPBountyOpen(MatchFile m)
+        {
+            if (openFor == m.id) return true;
+            if (UnityEngine.Time.realtimeSinceStartup < nextLook) return false;
+            nextLook = UnityEngine.Time.realtimeSinceStartup + 5f;
+            try
+            {
+                var found = System.Diagnostics.Process.GetProcessesByName("OPBounty");
+                foreach (var p in found) p.Dispose();
+                if (found.Length > 0) openFor = m.id;
+            }
+            catch (Exception) { /* non si riesce a guardare i programmi aperti: resta una lobby privata */ }
+            return openFor == m.id;
         }
 
         // il nome della coda come lo vede il giocatore (dalle traduzioni del sim: Button.Nationals = "OP18", Button.Western = "Standard"…)
@@ -115,7 +148,13 @@ namespace OPTCGTrainer
             var m = ForGame(game);
             if (m == null || m.Finished) return;
             bool worth = m.notes.Count > 0 || (!Restarting && m.maxTurn >= 1);
-            if (!worth) return; // un log di 2 righe ("Quits!" nel menu), un mulligan lasciato lì, un pezzo di turno rifatto senza note
+            if (!worth)
+            {
+                // un log di 2 righe ("Quits!" nel menu), un mulligan lasciato lì, un pezzo di turno rifatto senza note:
+                // se il suo file era già stato scritto (Track), via: al prossimo avvio non deve sembrare una partita rimasta a metà
+                Store.ForgetMatch(m);
+                return;
+            }
             try { journal.Checkpoint(); } catch (Exception) { /* già chiuso: il file sul disco è quello che c'è */ }
             Register(game, journal, Restarting ? "spezzata da un turno rifatto" : "abbandonata");
         }
@@ -150,13 +189,21 @@ namespace OPTCGTrainer
         /// All'avvio: le partite con note rimaste a metà (sim crashato) si cercano nella cartella dei log del sim e si registrano.
         internal static void RecoverLeftovers()
         {
+            // un altro sim è aperto: una partita "rimasta a metà" può essere quella che lui sta giocando adesso (dal turno 1 il
+            // suo file c'è già). Non si tocca: si recupera al prossimo avvio
+            if (System.Diagnostics.Process.GetProcessesByName("OPTCGSim").Length > 1) return;
             var dir = Path.GetFullPath(Path.Combine("CombatLogs", "AutoSaved"));
             foreach (var m in Store.Unfinished())
             {
                 var partial = Path.Combine(dir, m.logName);
                 var closed = Path.Combine(dir, m.logName.Replace(".partial.log", ".log"));
                 var source = File.Exists(closed) ? closed : partial;
-                if (!File.Exists(source)) continue; // cancellato (es. aggiornamento del sim): le note restano nel file della mod
+                if (!File.Exists(source))
+                {
+                    // cancellato (es. aggiornamento del sim): le note restano nel file della mod; senza note il file non serve più
+                    if (m.notes.Count == 0) Store.ForgetMatch(m);
+                    continue;
+                }
                 var backup = Path.Combine(Store.Logs, Path.GetFileName(source));
                 try { File.Copy(source, backup, true); }
                 catch (Exception e) { Plugin.Log.LogWarning("recupero di " + m.logName + ": " + e.Message); continue; }

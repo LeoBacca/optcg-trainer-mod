@@ -26,7 +26,8 @@ WHAT IT CHANGES
 - In your OPTCGSim folder it adds one file: winhttp.dll. Nothing else is touched.
 - Everything else is in %LOCALAPPDATA%\OPTCGTrainer.
 - It doesn't change the rules, the cards or the network of the game.
-- It only talks to optcgtrainer.com, and only after you link your account.
+- It talks to optcgtrainer.com, and only after you link your account. When the game starts it also asks
+  GitHub if there's a newer OPTCG Trainer (nothing is downloaded until you click "Update").
 
 UNINSTALL
 Double-click "Uninstall OPTCG Trainer".

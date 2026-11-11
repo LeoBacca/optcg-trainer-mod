@@ -30,7 +30,8 @@
 //                         format, leader (id della carta), count (ladder,queue,private,solo). Es. "coach set date=2026-11-21; goal=40"
 //   coach now <yyyy-MM-dd HH:mm>|off   un'ora del PC finta, solo per il coach (cambio del giorno alle 4, giorni saltati)
 //   coach games           tutte le partite che il coach conosce, con il perché non contano
-//   coach fake <giorni> <al giorno> | off   partite finte solo in memoria (mai salvate), per vedere le schermate piene
+//   coach fake <giorni> <al giorno> [esiti di oggi] | off   partite finte solo in memoria (mai salvate), per vedere le schermate
+//                         piene; gli esiti di oggi una lettera per partita, es. "coach fake 6 4 wol" (o = senza esito)
 //   coach stop            ferma l'evento e lo mette in archivio; "coach archive" elenca l'archivio
 #if DEVTOOLS
 using System;
@@ -415,6 +416,18 @@ namespace OPTCGTrainer
                                 turns = rnd.Next(2, 15), kind = "queue", format = ev.format,
                             });
                         }
+                    }
+                    // il terzo pezzo: gli esiti delle partite finte di oggi, una lettera per partita ("wol" = vinta, incerta, persa)
+                    for (int i = 0; nums.Length > 2 && i < nums[2].Length; i++)
+                    {
+                        var start = CoachStore.Now.AddMinutes(-30 * (nums[2].Length - i)).ToUniversalTime();
+                        var result = nums[2][i].ToString();
+                        CoachStore.FakeGames.Add(new GameSummary
+                        {
+                            v = GameSummary.Current, id = "fakeToday" + i, logName = "fake.log", startedAt = Coach.Iso(start), endedAt = Coach.Iso(start.AddMinutes(18)),
+                            day = Coach.Key(today), result = result, reason = result == "o" ? "disconnect" : result == "w" ? "win" : "loss", ended = result != "o",
+                            myLeader = ev.leader ?? "OP13-001", oppLeader = opps[i % opps.Length], first = 1 + i % 2, turns = 6 + i, kind = "queue", format = ev.format,
+                        });
                     }
                     return $"{CoachStore.FakeGames.Count} partite finte negli ultimi {days} giorni";
                 case "stop":
