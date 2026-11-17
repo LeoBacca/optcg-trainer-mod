@@ -32,7 +32,13 @@ namespace OPTCGTrainer
         static GameplayLogicScript game;
         static float nextFind;
         static GameObject noteButton, focusButton, endBox, endButton, panel, coachStrip;
-        static TextMeshProUGUI endStatus, panelTitle, panelFooter, coachLine;
+        static RectTransform coachPane;   // dentro la striscia del coach: la riga e i tre tasti WON · LOST · DON'T COUNT
+        static string coachDrawn;         // quello che la striscia mostra adesso (si rifà solo se cambia)
+        static bool opponentFieldBroken;  // bOpponentConnectionLost non c'è più (versione nuova del sim): non si guarda
+
+        /// Si sta giocando (il tavolo è aperto): CoachSync non calcola lo stato in partita.
+        internal static bool InGame { get; private set; }
+        static TextMeshProUGUI endStatus, panelTitle, panelFooter;
         static TMP_InputField input;
         static int noteLine, noteTurn, generation = -1;
         static bool openWhenReady, focusApplied, wasInGame;
@@ -59,6 +65,7 @@ namespace OPTCGTrainer
             }
 
             bool inGame = game.go_ReturnToMainMenu != null && game.go_ReturnToMainMenu.activeInHierarchy;
+            InGame = inGame;
             Match.Track(game);
             if (inGame) Knowledge.Track(game);
             if (inGame && noteButton == null) Build();
@@ -88,6 +95,9 @@ namespace OPTCGTrainer
             }
 
             var match = Match.ForGame(game);
+            // l'avversario è uscito (o la connessione è saltata): il sim non chiude il log, lo butta via quando torni al menu, e il
+            // riquadro di fine partita non si vedeva mai. Si registra adesso, così il riquadro (e i tasti del coach) compaiono
+            if (inGame && match != null && !match.Finished && OpponentLost(game)) Match.OpponentGone(game);
             bool finished = match != null && match.Finished;
             bool showEnd = show && finished;
             if (showEnd && !endBox.activeSelf) PlaceEnd(); // ogni volta che compare: la finestra può aver cambiato misura
@@ -185,19 +195,23 @@ namespace OPTCGTrainer
             endStatus.enableAutoSizing = true;
             endStatus.fontSizeMin = 8;
             endStatus.fontSizeMax = bh * 0.24f;
-            // la riga dell'Event Coach: una striscia blu notte attaccata sotto il riquadro (sopra il tavolo non si leggerebbe)
+            // la riga dell'Event Coach: una striscia blu notte attaccata sotto il riquadro (sopra il tavolo non si leggerebbe).
+            // Dentro, un pannello in pixel "del disegno" (StripW × StripH, rimpicciolito alla misura della striscia): la riga e,
+            // sotto, i tre tasti WON · LOST · DON'T COUNT per correggere a mano l'esito (richiesta di Leo, 0.5.0)
             coachStrip = new GameObject("OPTCGTrainerCoachLine", typeof(RectTransform), typeof(Image));
             var strip = (RectTransform)coachStrip.transform;
             strip.SetParent(box, false);
             Look.Place(strip, 0.07f, 0.98f, 0.86f, 0.2f);
             Frame(coachStrip, frameTemplate);
             coachStrip.GetComponent<Image>().raycastTarget = false;
-            coachLine = Look.NewText(strip, label, "Coach", bh * 0.2f, TextAlignmentOptions.Center);
-            Look.Place(coachLine.rectTransform, 0.03f, 0.1f, 0.94f, 0.8f);
-            coachLine.enableAutoSizing = true;
-            coachLine.fontSizeMin = 8;
-            coachLine.fontSizeMax = bh * 0.2f;
-            coachLine.textWrappingMode = TextWrappingModes.NoWrap;
+            coachPane = (RectTransform)new GameObject("Pane", typeof(RectTransform)).transform;
+            coachPane.SetParent(strip, false);
+            coachPane.anchorMin = coachPane.anchorMax = new Vector2(0.5f, 1);
+            coachPane.pivot = new Vector2(0.5f, 1);
+            coachPane.anchoredPosition = Vector2.zero;
+            coachPane.sizeDelta = new Vector2(StripW, StripH);
+            float k = bw * 1.3f * 0.86f / StripW; // la larghezza della striscia, nelle misure del riquadro
+            coachPane.localScale = new Vector3(k, k, 1);
             coachStrip.SetActive(false);
             endBox.SetActive(false);
         }
@@ -458,9 +472,7 @@ namespace OPTCGTrainer
             }
             Look.SetLabel(endButton, $"<size=62%>{top}</size>\nOPTCG <color={Look.GoldHex}>TRAINER</color>");
             if (endStatus.text != status) endStatus.text = status;
-            var coach = CoachUi.EndLine(m);
-            if (coachStrip.activeSelf != (coach != null)) coachStrip.SetActive(coach != null);
-            if (coach != null && coachLine.text != coach) coachLine.text = coach;
+            DrawCoach(m);
 
             if (openWhenReady && m.replayId != null && m.PendingNotes == 0)
             {
@@ -468,6 +480,61 @@ namespace OPTCGTrainer
                 Account.OpenReplay(m.replayId);
             }
         }
+
+        // ---- la striscia dell'Event Coach, sotto il riquadro ----
+
+        const float StripW = 560, StripH = 96, StripLine = 40;
+
+        // la riga ("Event Coach: 3/11 today · 8 to go") e, se la partita può contare, i tre tasti: quello che dice il log è già
+        // acceso (con l'esito incerto nessuno), un clic lo cambia subito e si può ricliccare. Si rifà solo se cambia qualcosa
+        static void DrawCoach(MatchFile m)
+        {
+            var (line, g) = CoachUi.EndLine(m);
+            bool buttons = g != null && !g.added && (g.why == null || g.excluded);
+            string lit = g == null ? "" : g.excluded ? "x" : g.result;
+            // con la partita nel segno: una partita nuova con la stessa striscia rifà i tasti (se no i clic andrebbero a quella di prima)
+            string sign = line == null ? null : m.id + "|" + line + "|" + buttons + "|" + lit;
+            if (sign == coachDrawn) return;
+            coachDrawn = sign;
+            coachStrip.SetActive(line != null);
+            if (line == null) return;
+            var strip = (RectTransform)coachStrip.transform;
+            float h = buttons ? StripH : StripLine;
+            Look.Place(strip, 0.07f, 0.98f, 0.86f, h * coachPane.localScale.y / ((RectTransform)endBox.transform).sizeDelta.y);
+            foreach (Transform child in coachPane) UnityEngine.Object.Destroy(child.gameObject);
+            var text = CoachLook.Write(coachPane, 12, 6, StripW - 24, 30, line, 19, Color.white, false, TextAlignmentOptions.Center);
+            text.enableAutoSizing = true; // un perché lungo si rimpicciolisce invece di uscire dalla striscia
+            text.fontSizeMin = 12;
+            text.fontSizeMax = 19;
+            if (!buttons) return;
+            void Pill(float x, float w, string label, string result, Color on)
+            {
+                bool isOn = lit == result;
+                CoachLook.Box(coachPane, x, 46, w, 36, isOn ? on : CoachLook.Plan, 5);
+                CoachLook.Write(coachPane, x, 46, w, 36, label, 16, isOn && result == "x" ? CoachLook.Dark : isOn ? Color.white : CoachLook.Soft, true, TextAlignmentOptions.Center);
+                CoachLook.Hot(coachPane, x, 46, w, 36, () => { if (!isOn) CoachStore.SetResult(g, result); });
+            }
+            Pill(80, 112, "WON", "w", CoachLook.Win);
+            Pill(200, 112, "LOST", "l", CoachLook.Loss);
+            Pill(320, 160, "DON'T COUNT", "x", CoachLook.Gold);
+        }
+
+        // l'avversario è uscito o la connessione è saltata. Il campo di Batsu si legge in un metodo a parte: se una versione
+        // nuova del sim lo toglie, l'errore arriva qui (una volta) e non ferma tutto GameUi.Tick
+        static bool OpponentLost(GameplayLogicScript g)
+        {
+            if (opponentFieldBroken) return false;
+            try { return ReadOpponentLost(g); }
+            catch (Exception e)
+            {
+                opponentFieldBroken = true;
+                Plugin.Log.LogWarning("fine partita senza avversario: campo del sim non trovato (" + e.GetType().Name + ")");
+                return false;
+            }
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        static bool ReadOpponentLost(GameplayLogicScript g) => g.bOpponentConnectionLost;
 
         // un testo che arriva dal sito (il nickname) si mostra così com'è, senza che diventi formattazione
         static string Safe(string text) => "<noparse>" + (text ?? "").Replace("</noparse>", "") + "</noparse>";
@@ -494,6 +561,7 @@ namespace OPTCGTrainer
             // gira a ogni fotogramma: solo i quattro riquadri, che contengono già tutto il resto (il logo sta dentro endBox)
             return Look.Contains(noteButton.transform as RectTransform, p) || Look.Contains(focusButton.transform as RectTransform, p)
                 || (endBox != null && Look.Contains(endBox.transform as RectTransform, p)) || (panel != null && Look.Contains(panel.transform as RectTransform, p))
+                || (coachStrip != null && coachStrip.activeInHierarchy && Look.Contains(coachStrip.transform as RectTransform, p))
                 || (ShareShot.Button != null && Look.Contains(ShareShot.Button.transform as RectTransform, p));
         }
 

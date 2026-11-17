@@ -213,6 +213,22 @@ namespace OPTCGTrainer
             }
         }
 
+        // ---- l'Event Coach sul sito (CoachSync.cs) ----
+
+        /// Il collegamento di adesso (quando è stato fatto): chi tiene dati del sito riparte da zero se cambia (un altro account).
+        internal static string LinkId => Linked ? account.linkedAt ?? "?" : null;
+
+        /// Una richiesta al sito con il token, per CoachSync: done(stato HTTP, corpo; 0 = niente rete). Un 401 toglie il
+        /// collegamento, come per i log. Gli altri problemi non si scrivono a schermo: il coach va avanti come prima.
+        internal static IEnumerator Call(string method, string path, object body, Action<int, JObject> done)
+        {
+            if (!Linked) { done(-1, null); yield break; }
+            var req = new Request(method, path, body != null ? Json(body) : null);
+            yield return req.Send();
+            if (req.Status == 401) Unlinked();
+            done(req.Status, req.Body);
+        }
+
         // token revocato dal sito (Settings → Unlink) o utente non più attivo: si ricollega dal pulsante
         static void Unlinked()
         {

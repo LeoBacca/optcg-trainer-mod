@@ -152,7 +152,10 @@ namespace OPTCGTrainer
         // Senza esito: WON / LOST lì accanto. Con un esito: "edit" apre gli stessi pulsanti (il log può sbagliare).
         static void GameRow(RectTransform p, float y, CoachGame g, bool withDay)
         {
-            bool counts = g.why == null, open = counts && rowEdit == g.ids[0], unknown = counts && g.result == "o";
+            // si correggono le partite che contano e quelle tolte con DON'T COUNT; quelle dell'estensione di Chrome no (si
+            // correggono lì: qui arrivano dal sito)
+            bool counts = g.why == null, editable = (counts || g.excluded) && !g.remote;
+            bool open = editable && rowEdit == g.ids[0], unknown = counts && g.result == "o";
             var chip = !counts ? CoachLook.Unknown : g.result == "w" ? CoachLook.Win : g.result == "l" ? CoachLook.Loss : CoachLook.Unknown;
             CoachLook.Box(p, 208, y + 4, 28, 28, chip, 4);
             CoachLook.Write(p, 208, y + 4, 28, 28, counts && g.result == "w" ? "W" : counts && g.result == "l" ? "L" : unknown ? "?" : "–", 16, counts ? Color.white : CoachLook.Soft, true, TextAlignmentOptions.Center);
@@ -160,27 +163,42 @@ namespace OPTCGTrainer
             var vs = CoachLook.Write(p, 250, y + 6, 272, 26, "vs " + (g.oppLeader == null ? "unknown leader" : LeaderName(g.oppLeader, g.oppLeaderName)), 19, color);
             vs.overflowMode = TextOverflowModes.Ellipsis;
             void Set(string result) { CoachStore.SetResult(g, result); rowEdit = null; }
-            if (open || unknown)
+            if (open || (unknown && !g.remote))
             {
+                // WON · LOST · DON'T COUNT (0.5.0: la partita esce dal conto e dal winrate), e UNDO o REMOVE
                 float x = 530;
-                if (unknown && !open) { CoachLook.Write(p, x, y + 8, 84, 24, "no result:", 17, CoachLook.Gold); x += 88; }
-                Pill(p, x, y + 4, 66, 28, "WON", g.result == "w" ? CoachLook.Win : CoachLook.Plan, Color.white, () => Set("w"));
-                Pill(p, x + 70, y + 4, 66, 28, "LOST", g.result == "l" ? CoachLook.Loss : CoachLook.Plan, Color.white, () => Set("l"));
+                bool lit(string r) => g.excluded ? r == "x" : g.result == r;
+                Pill(p, x, y + 4, 66, 28, "WON", lit("w") ? CoachLook.Win : CoachLook.Plan, Color.white, () => Set("w"));
+                Pill(p, x + 70, y + 4, 66, 28, "LOST", lit("l") ? CoachLook.Loss : CoachLook.Plan, Color.white, () => Set("l"));
+                x += 140;
+                // una partita aggiunta a mano non si toglie dal conto: si toglie e basta (REMOVE)
+                if (!g.added) { Pill(p, x, y + 4, 116, 28, "DON'T COUNT", lit("x") ? CoachLook.Gold : CoachLook.Plan, lit("x") ? CoachLook.Dark : Color.white, () => Set("x")); x += 120; }
                 // di nuovo come dice il log (se l'esito era stato messo a mano), o via la partita aggiunta a mano
-                if (open && g.added) Pill(p, x + 140, y + 4, 84, 28, "REMOVE", CoachLook.Plan, CoachLook.Warn, () => { CoachStore.RemoveAdded(g); rowEdit = null; });
-                else if (open && g.byHand) Pill(p, x + 140, y + 4, 84, 28, "UNDO", CoachLook.Plan, CoachLook.Soft, () => Set(null));
+                if (open && g.added) Pill(p, x, y + 4, 84, 28, "REMOVE", CoachLook.Plan, CoachLook.Warn, () => { CoachStore.RemoveAdded(g); rowEdit = null; });
+                else if (open && g.byHand) Pill(p, x, y + 4, 84, 28, "UNDO", CoachLook.Plan, CoachLook.Soft, () => Set(null));
+            }
+            else if (g.remote)
+            {
+                // dall'estensione di Chrome: un'etichetta con il sim dove è stata giocata (o "web"), poi turni e primo/secondo se si sanno
+                var where = Coach.Short(g.sim ?? "web", 16);
+                float w = Mathf.Clamp(where.Length * 9 + 18, 46, 160);
+                CoachLook.Box(p, 530, y + 7, w, 22, CoachLook.Spare, 4);
+                CoachLook.Write(p, 530, y + 7, w, 22, "<noparse>" + where.Replace("</noparse>", "") + "</noparse>", 13, CoachLook.Soft, true, TextAlignmentOptions.Center);
+                string det = string.Join(" · ", new[] { g.turns > 0 ? g.turns + " turns" : null, g.first == 1 ? "went first" : g.first == 2 ? "went second" : null, "by hand" }.Where(s => s != null));
+                CoachLook.Write(p, 530 + w + 10, y + 8, 300 - w, 24, det, 17, CoachLook.Label).overflowMode = TextOverflowModes.Ellipsis;
             }
             else
             {
-                string det = !counts ? g.why + ", not counted"
+                string det = !counts ? NotCounted(g.why)
                     : g.added ? "added by hand"
                     : $"{g.turns} turns · {(g.minutes != null ? (g.minutes.Value < 0.5 ? "<1" : Math.Round(g.minutes.Value).ToString(CultureInfo.InvariantCulture)) + " min · " : "")}{(g.first == 1 ? "went first" : g.first == 2 ? "went second" : "")}".TrimEnd(' ', '·')
                         + (g.byHand ? " · by hand" : "");
-                CoachLook.Write(p, 530, y + 8, 330, 24, det, 17, counts ? CoachLook.Label : CoachLook.Dim).overflowMode = TextOverflowModes.Ellipsis;
+                CoachLook.Write(p, 530, y + 8, 300, 24, det, 17, counts ? CoachLook.Label : CoachLook.Dim).overflowMode = TextOverflowModes.Ellipsis;
             }
-            CoachLook.Write(p, 836, y + 9, 86, 22, g.startLocal.ToString(withDay ? "d MMM" : "HH:mm", CultureInfo.InvariantCulture), 16, CoachLook.Dim, false, TextAlignmentOptions.TopRight);
+            // aperta, i pulsanti arrivano fin qui: l'ora si toglie (torna chiudendo)
+            if (!open) CoachLook.Write(p, 836, y + 9, 86, 22, g.startLocal.ToString(withDay ? "d MMM" : "HH:mm", CultureInfo.InvariantCulture), 16, CoachLook.Dim, false, TextAlignmentOptions.TopRight);
             if (open) Pill(p, 932, y + 4, 48, 28, "close", CoachLook.Card, CoachLook.Label, () => rowEdit = null);
-            else if (counts && !unknown) Pill(p, 932, y + 4, 48, 28, "edit", CoachLook.Card, CoachLook.Label, () => rowEdit = g.ids[0]);
+            else if (editable && !unknown) Pill(p, 932, y + 4, 48, 28, "edit", CoachLook.Card, CoachLook.Label, () => rowEdit = g.ids[0]);
         }
 
         // "Add a game", al posto della lista: una partita che la mod non ha registrato (sim aperto senza la mod, mod rotta da un
@@ -312,9 +330,22 @@ namespace OPTCGTrainer
         }
 
         // ---- STATS ----
+        // 0.5.0 (richiesta di Leo: "capire quali mazzi che ho giocato io stanno performando"): al centro YOUR DECKS sopra i
+        // MATCHUPS, e un clic su un mio mazzo filtra i matchup su quel mazzo. Per farci stare tutto senza togliere niente: i 4
+        // numeri grandi più bassi, il calendario e le settimane un poco più stretti, le righe delle tabelle da 30.
 
-        static bool allLeaders;
+        static string deckPick;   // il mazzo scelto: null = quello dell'evento (se c'è, se no tutti), "" = tutti, se no il leader ("?" = senza)
         static GameObject tip;
+
+        // il mazzo dei matchup adesso: null = tutti
+        static string PickedDeck(CoachState st)
+        {
+            var pick = deckPick ?? st.ev.leader ?? "";
+            return pick == "" ? null : pick;
+        }
+
+        const float KpiY = 180, KpiH = 92, LowY = 288, LowH = 478;   // le due file di riquadri (fino a 766, come prima)
+        const float HeatX = 184, HeatW = 500, MidX = 700, MidW = 690, WeekX = 1406, WeekW = 330;
 
         static void BuildStats(RectTransform p, CoachState st)
         {
@@ -330,13 +361,13 @@ namespace OPTCGTrainer
             for (int i = 0; i < kpis.Length; i++)
             {
                 float x = 184 + i * 392;
-                Card(p, x, 180, 376, 110);
-                CoachLook.Caps(p, x + 24, 194, 330, kpis[i].Item1, 14);
-                CoachLook.Write(p, x + 24, 210, 330, 56, kpis[i].Item2, 46, Color.white, true);
-                CoachLook.Write(p, x + 24, 264, 340, 22, kpis[i].Item3, 17, CoachLook.Label);
+                Card(p, x, KpiY, 376, KpiH);
+                CoachLook.Caps(p, x + 24, KpiY + 10, 330, kpis[i].Item1, 14);
+                CoachLook.Write(p, x + 24, KpiY + 24, 330, 40, kpis[i].Item2, 34, Color.white, true, TextAlignmentOptions.BottomLeft);
+                CoachLook.Write(p, x + 24, KpiY + 66, 340, 22, kpis[i].Item3, 16, CoachLook.Label);
             }
             Heatmap(p, st);
-            Matchups(p, st);
+            DecksAndMatchups(p, st);
             Weeks(p, st);
         }
 
@@ -358,28 +389,28 @@ namespace OPTCGTrainer
             if (count >= st.weeks.Count) return;
             var from = st.weeks[first].monday;
             var to = st.weeks[first + count - 1].monday.AddDays(6);
-            CoachLook.Write(p, x, 343, 330, 18, $"{from.ToString("d MMM", CultureInfo.InvariantCulture)} – {to.ToString("d MMM", CultureInfo.InvariantCulture)} · {count} of {st.weeks.Count} weeks",
+            CoachLook.Write(p, x, LowY + 37, 300, 18, $"{from.ToString("d MMM", CultureInfo.InvariantCulture)} – {to.ToString("d MMM", CultureInfo.InvariantCulture)} · {count} of {st.weeks.Count} weeks",
                 13, CoachLook.Dim);
         }
 
         static void Heatmap(RectTransform p, CoachState st)
         {
-            Card(p, 184, 306, 560, 460);
-            CoachLook.Caps(p, 208, 324, 220, "Games per day");
+            Card(p, HeatX, LowY, HeatW, LowH);
+            CoachLook.Caps(p, 208, LowY + 18, 220, "Games per day");
             // la scala
-            CoachLook.Write(p, 404, 323, 32, 22, "less", 14, CoachLook.Label, false, TextAlignmentOptions.TopRight);
+            CoachLook.Write(p, 388, LowY + 17, 32, 22, "less", 14, CoachLook.Label, false, TextAlignmentOptions.TopRight);
             string[] bins = { "0", "1–2", "3–4", "5–6", "7+" };
             for (int i = 0; i < 5; i++)
             {
-                CoachLook.Box(p, 440 + i * 38, 322, 34, 22, CoachLook.Bins[i], 3);
-                CoachLook.Write(p, 440 + i * 38, 322, 34, 22, bins[i], 13, i == 0 ? CoachLook.Soft : i == 1 ? Color.white : CoachLook.Dark, true, TextAlignmentOptions.Center);
+                CoachLook.Box(p, 424 + i * 38, LowY + 16, 34, 22, CoachLook.Bins[i], 3);
+                CoachLook.Write(p, 424 + i * 38, LowY + 16, 34, 22, bins[i], 13, i == 0 ? CoachLook.Soft : i == 1 ? Color.white : CoachLook.Dark, true, TextAlignmentOptions.Center);
             }
-            CoachLook.Write(p, 634, 323, 50, 22, "more", 14, CoachLook.Label);
+            CoachLook.Write(p, 618, LowY + 17, 50, 22, "more", 14, CoachLook.Label);
             var (first, count) = WeekWindow(st);
             WeekRange(p, 208, st, first, count);
 
             // una colonna per settimana (fino a 10), una riga per giorno; la legenda sotto
-            const float X0 = 256, Y0 = 386, S = 44, C = 40;
+            const float X0 = 252, Y0 = LowY + 80, S = 42, C = 38;
             string[] names = { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" };
             for (int r = 0; r < 7; r++) CoachLook.Write(p, 208, Y0 + r * S, 40, C, names[r], 13, CoachLook.Dim, false, TextAlignmentOptions.MidlineLeft);
             var byDate = st.days.ToDictionary(d => d.date);
@@ -403,9 +434,9 @@ namespace OPTCGTrainer
             };
             for (int i = 0; i < items.Length; i++)
             {
-                float x = 208 + (i % 3) * 172, y = 700 + (i / 3) * 30;
+                float x = 208 + (i % 3) * 156, y = LowY + 402 + (i / 3) * 30;
                 items[i].draw(x, y + 2);
-                CoachLook.Write(p, x + 28, y, 140, 24, items[i].text, 15, CoachLook.Soft, false, TextAlignmentOptions.MidlineLeft);
+                CoachLook.Write(p, x + 28, y, 124, 24, items[i].text, 15, CoachLook.Soft, false, TextAlignmentOptions.MidlineLeft);
             }
         }
 
@@ -454,73 +485,108 @@ namespace OPTCGTrainer
             tip = null;
         }
 
-        static void Matchups(RectTransform p, CoachState st)
+        // le colonne delle due tabelle del riquadro di mezzo (YOUR DECKS e MATCHUPS), allineate
+        const float ColName = 724, ColGames = 976, ColWl = 1050, ColBar = 1214, ColWin = 1296, ColEnd = 1366, RowH = 30;
+
+        static void DecksAndMatchups(RectTransform p, CoachState st)
         {
-            Card(p, 760, 306, 590, 460);
-            CoachLook.Caps(p, 784, 324, 200, "Matchups");
-            bool mine = st.ev.leader != null && !allLeaders;
-            var list = mine ? st.matchupsWithLeader : st.matchups;
-            int games = list.Sum(m => m.record.games);
-            CoachLook.Write(p, 960, 323, 130, 22, games == 1 ? "1 game" : games + " games", 15, CoachLook.Label, false, TextAlignmentOptions.TopRight);
-            if (st.ev.leader != null)
+            Card(p, MidX, LowY, MidW, LowH);
+            var picked = PickedDeck(st);
+
+            // YOUR DECKS: i leader con cui ho giocato, al più 5 righe (poi "Others"); quello scelto sempre in vista
+            CoachLook.Caps(p, ColName, LowY + 18, 200, "Your decks");
+            Heads(p, LowY + 20);
+            const int MaxDecks = 5, MaxMatchups = 7;
+            var decks = st.myDecks.Take(st.myDecks.Count > MaxDecks ? MaxDecks - 1 : MaxDecks).ToList();
+            var chosen = picked != null ? st.myDecks.FirstOrDefault(d => string.Equals(d.leader, picked, StringComparison.OrdinalIgnoreCase)) : null;
+            if (chosen != null && !decks.Contains(chosen)) decks[decks.Count - 1] = chosen;
+            float y = LowY + 44;
+            if (st.myDecks.Count == 0) CoachLook.Write(p, ColName, y + 4, 600, 24, "No games yet.", 17, CoachLook.Dim);
+            for (int i = 0; i < decks.Count; i++)
             {
-                var toggle = CoachLook.Button(p, host.go_Settings, 1104, 314, 222, 38, mine ? "Your leader: " + Coach.Short(LeaderName(st.ev.leader, st.leaderName), 18) : "All your leaders", false,
-                    () => { allLeaders = !allLeaders; redraw = true; }, 17);
-                // un leader dal nome lungo ("Green-Purple Doflamingo"): la scritta si rimpicciolisce invece di uscire dal pulsante
-                var label = toggle.GetComponentInChildren<TMP_Text>(true);
-                if (label != null) { label.enableAutoSizing = true; label.fontSizeMin = 11; label.fontSizeMax = 17; label.margin = new Vector4(8, 0, 8, 0); }
+                var d = decks[i];
+                bool on = d == chosen;
+                if (on) { CoachLook.Box(p, ColName - 12, y + i * RowH + 1, ColEnd - ColName + 24, RowH - 2, CoachLook.Plan, 4); CoachLook.Box(p, ColName - 12, y + i * RowH + 1, 4, RowH - 2, CoachLook.Gold, 2); }
+                Row(p, y + i * RowH, DeckName(d.leader, d.name), d.record, d.Few, on);
+                var leader = d.leader;
+                CoachLook.Hot(p, ColName - 12, y + i * RowH, ColEnd - ColName + 24, RowH, () => { deckPick = on ? "" : leader; redraw = true; });
             }
-            else CoachLook.Write(p, 1104, 323, 222, 22, "all your leaders", 15, CoachLook.Label, false, TextAlignmentOptions.TopRight);
-
-            CoachLook.Write(p, 784, 362, 214, 20, "<cspace=0.06em>VS LEADER</cspace>", 13, CoachLook.Dim, true);
-            CoachLook.Write(p, 978, 362, 70, 20, "<cspace=0.06em>GAMES</cspace>", 13, CoachLook.Dim, true, TextAlignmentOptions.TopRight);
-            CoachLook.Write(p, 1048, 362, 74, 20, "<cspace=0.06em>W–L</cspace>", 13, CoachLook.Dim, true, TextAlignmentOptions.TopRight);
-            CoachLook.Write(p, 1180, 362, 60, 20, "50%", 13, CoachLook.Dim, false, TextAlignmentOptions.Top);
-            CoachLook.Write(p, 1260, 362, 66, 20, "<cspace=0.06em>WIN</cspace>", 13, CoachLook.Dim, true, TextAlignmentOptions.TopRight);
-            if (list.Count == 0) CoachLook.Write(p, 784, 400, 542, 26, "No games yet.", 18, CoachLook.Dim);
-
-            // al più 8 righe: le ultime diventano "Others (N leaders)"
-            var rows = list.Take(list.Count > 8 ? 7 : 8).Select(m => (LeaderName(m.leader, m.name), m.record, m.Few)).ToList();
-            if (list.Count > 8)
+            if (st.myDecks.Count > MaxDecks)
             {
                 var rest = new Record();
-                foreach (var m in list.Skip(7)) { rest.games += m.record.games; rest.wins += m.record.wins; rest.losses += m.record.losses; }
-                rows.Add(($"Others ({list.Count - 7} leaders)", rest, rest.wins + rest.losses < Coach.MinMatchupGames));
+                foreach (var d in st.myDecks.Where(d => !decks.Contains(d))) { rest.games += d.record.games; rest.wins += d.record.wins; rest.losses += d.record.losses; }
+                Row(p, y + decks.Count * RowH, $"Others ({st.myDecks.Count - decks.Count} decks)", rest, rest.wins + rest.losses < Coach.MinMatchupGames, false);
             }
-            for (int i = 0; i < rows.Count; i++)
+
+            // MATCHUPS: dell'evento, o di un mio mazzo
+            float my = LowY + 208;
+            CoachLook.Box(p, ColName, my - 12, ColEnd - ColName, 1, CoachLook.CardLine);
+            CoachLook.Caps(p, ColName, my, 200, "Matchups");
+            var list = Coach.MatchupsWith(st, picked);
+            int games = list.Sum(m => m.record.games);
+            // senza un mazzo scelto si dice che i mazzi lassù si cliccano
+            var with = picked != null ? "with " + DeckName(picked, chosen?.name) + " · " + Coach.N(games, "game")
+                : Coach.N(games, "game") + " · all your decks" + (st.myDecks.Count > 1 ? " · click a deck above" : "");
+            CoachLook.Write(p, ColName + 128, my, picked != null ? 400 : 510, 22, with, 15, CoachLook.Label).overflowMode = TextOverflowModes.Ellipsis;
+            if (picked != null) Pill(p, ColEnd - 104, my - 6, 104, 28, "All decks", CoachLook.Plan, Color.white, () => deckPick = "", 14);
+            float ry = my + 26;
+            if (list.Count == 0) CoachLook.Write(p, ColName, ry + 4, 542, 26, "No games yet.", 17, CoachLook.Dim);
+            // al più 7 righe: le ultime diventano "Others (N leaders)"
+            var rows = list.Take(list.Count > MaxMatchups ? MaxMatchups - 1 : MaxMatchups).Select(m => ("vs " + LeaderName(m.leader, m.name), m.record, m.Few)).ToList();
+            if (list.Count > MaxMatchups)
             {
-                var (name, r, few) = rows[i];
-                float y = 392 + i * 40;
-                var c = few ? CoachLook.Dim : CoachLook.Text;
-                CoachLook.Write(p, 784, y + 7, 214, 26, name, 18, c);
-                CoachLook.Write(p, 978, y + 8, 70, 24, r.games.ToString(CultureInfo.InvariantCulture), 18, few ? CoachLook.Dim : CoachLook.Soft, false, TextAlignmentOptions.TopRight);
-                CoachLook.Write(p, 1048, y + 8, 74, 24, $"{r.wins}–{r.losses}", 18, few ? CoachLook.Dim : CoachLook.Soft, false, TextAlignmentOptions.TopRight);
-                CoachLook.Box(p, 1210, y + 6, 1, 26, CoachLook.Outline);
-                if (!few && r.Percent is int pct)
-                {
-                    float px = Mathf.Max(Mathf.Min(Mathf.Abs(pct - 50), 25) * 70f / 25f, 2);
-                    var color = pct > 50 ? CoachLook.Win : pct < 50 ? CoachLook.Loss : CoachLook.Even;
-                    CoachLook.Box(p, pct >= 50 ? 1211 : 1210 - px, y + 12, px, 14, color, 3);
-                }
-                CoachLook.Write(p, 1260, y + 8, 66, 24, few || r.Percent == null ? "–" : r.Percent + "%", 18, few ? CoachLook.Dim : Color.white, !few, TextAlignmentOptions.TopRight);
-                if (i < rows.Count - 1) CoachLook.Box(p, 784, y + 38, 542, 1, CoachLook.Row);
+                var rest = new Record();
+                foreach (var m in list.Skip(MaxMatchups - 1)) { rest.games += m.record.games; rest.wins += m.record.wins; rest.losses += m.record.losses; }
+                rows.Add(($"Others ({list.Count - MaxMatchups + 1} leaders)", rest, rest.wins + rest.losses < Coach.MinMatchupGames));
             }
-            CoachLook.Box(p, 784, 728, 22, 12, CoachLook.Win, 3);
-            CoachLook.Write(p, 814, 723, 120, 22, "you win more", 15, CoachLook.Soft);
-            CoachLook.Box(p, 932, 728, 22, 12, CoachLook.Loss, 3);
-            CoachLook.Write(p, 962, 723, 120, 22, "you lose more", 15, CoachLook.Soft);
-            CoachLook.Write(p, 1084, 723, 250, 22, "– = fewer than 3 games", 15, CoachLook.Label);
+            for (int i = 0; i < rows.Count; i++) Row(p, ry + i * RowH, rows[i].Item1, rows[i].record, rows[i].Few, false, i < rows.Count - 1);
+            CoachLook.Box(p, ColName, LowY + LowH - 23, 22, 12, CoachLook.Win, 3);
+            CoachLook.Write(p, ColName + 30, LowY + LowH - 28, 120, 22, "you win more", 14, CoachLook.Soft);
+            CoachLook.Box(p, ColName + 146, LowY + LowH - 23, 22, 12, CoachLook.Loss, 3);
+            CoachLook.Write(p, ColName + 176, LowY + LowH - 28, 120, 22, "you lose more", 14, CoachLook.Soft);
+            CoachLook.Write(p, ColName + 300, LowY + LowH - 28, ColEnd - ColName - 300, 22, "– = fewer than 3 games with a result", 14, CoachLook.Label, false, TextAlignmentOptions.TopRight);
+        }
+
+        // "Red-Green Luffy"; senza leader "Unknown leader"
+        static string DeckName(string leader, string name) => leader == null || leader == "?" ? "Unknown leader" : LeaderName(leader, name);
+
+        // i titoli delle colonne, sulla riga del titolo della tabella
+        static void Heads(RectTransform p, float y)
+        {
+            CoachLook.Write(p, ColGames - 10, y, 80, 20, "<cspace=0.06em>GAMES</cspace>", 13, CoachLook.Dim, true, TextAlignmentOptions.TopRight);
+            CoachLook.Write(p, ColWl, y, 74, 20, "<cspace=0.06em>W–L</cspace>", 13, CoachLook.Dim, true, TextAlignmentOptions.TopRight);
+            CoachLook.Write(p, ColBar - 30, y, 60, 20, "50%", 13, CoachLook.Dim, false, TextAlignmentOptions.Top);
+            CoachLook.Write(p, ColWin, y, ColEnd - ColWin, 20, "<cspace=0.06em>WIN</cspace>", 13, CoachLook.Dim, true, TextAlignmentOptions.TopRight);
+        }
+
+        // una riga: nome, partite, W–L, la barra (blu: vinci di più, rossa: perdi di più, lunga fino a ±25 punti), il winrate
+        // ("–" con meno di 3 partite con un esito)
+        static void Row(RectTransform p, float y, string name, Record r, bool few, bool on, bool line = false)
+        {
+            var c = few ? CoachLook.Dim : CoachLook.Text;
+            CoachLook.Write(p, ColName, y + 4, ColGames - ColName - 8, 24, name, 17, on ? Color.white : c, on).overflowMode = TextOverflowModes.Ellipsis;
+            CoachLook.Write(p, ColGames, y + 5, 70, 22, r.games.ToString(CultureInfo.InvariantCulture), 17, few ? CoachLook.Dim : CoachLook.Soft, false, TextAlignmentOptions.TopRight);
+            CoachLook.Write(p, ColWl, y + 5, 74, 22, $"{r.wins}–{r.losses}", 17, few ? CoachLook.Dim : CoachLook.Soft, false, TextAlignmentOptions.TopRight);
+            CoachLook.Box(p, ColBar, y + 4, 1, 22, CoachLook.Outline);
+            if (!few && r.Percent is int pct)
+            {
+                float px = Mathf.Max(Mathf.Min(Mathf.Abs(pct - 50), 25) * 70f / 25f, 2);
+                var color = pct > 50 ? CoachLook.Win : pct < 50 ? CoachLook.Loss : CoachLook.Even;
+                CoachLook.Box(p, pct >= 50 ? ColBar + 1 : ColBar - px, y + 9, px, 12, color, 3);
+            }
+            CoachLook.Write(p, ColWin, y + 5, ColEnd - ColWin, 22, few || r.Percent == null ? "–" : r.Percent + "%", 17, few ? CoachLook.Dim : Color.white, !few, TextAlignmentOptions.TopRight);
+            if (line) CoachLook.Box(p, ColName, y + RowH - 1, ColEnd - ColName, 1, CoachLook.Row);
         }
 
         static void Weeks(RectTransform p, CoachState st)
         {
-            Card(p, 1366, 306, 370, 460);
-            CoachLook.Caps(p, 1390, 324, 300, "Games per week");
+            Card(p, WeekX, LowY, WeekW, LowH);
+            CoachLook.Caps(p, WeekX + 24, LowY + 18, 280, "Games per week");
             var (first, count) = WeekWindow(st);
-            WeekRange(p, 1390, st, first, count);
+            WeekRange(p, WeekX + 24, st, first, count);
             var shown = st.weeks.Skip(first).Take(count).ToList();
             if (shown.Count == 0) return;
-            const float B = 690, Left = 1392, Width = 318;
+            const float B = 690, Left = WeekX + 24, Width = WeekW - 48;
             int max = Math.Max(1, shown.Max(w => Math.Max(w.games, w.plan)));
             float K = Mathf.Min(6.4f, 280f / max);
             float step = Width / shown.Count, bar = Mathf.Min(40, step * 0.62f), tick = Mathf.Min(54, step * 0.86f);
@@ -546,8 +612,8 @@ namespace OPTCGTrainer
                 if (label)
                     CoachLook.Write(p, cx - 34, B + 8, 68, 20, w.monday.ToString("d MMM", CultureInfo.InvariantCulture), roomy ? 14 : 12, w.current ? Color.white : CoachLook.Dim, w.current, TextAlignmentOptions.Top);
             }
-            CoachLook.Box(p, 1390, 749, 22, 2, new Color(1, 1, 1, 0.8f));
-            CoachLook.Write(p, 1420, 738, 300, 22, $"plan ({st.rate} a day, rest days out)", 15, CoachLook.Soft);
+            CoachLook.Box(p, WeekX + 24, 749, 22, 2, new Color(1, 1, 1, 0.8f));
+            CoachLook.Write(p, WeekX + 54, 738, WeekW - 66, 22, $"plan ({st.rate} a day, rest days out)", 15, CoachLook.Soft).overflowMode = TextOverflowModes.Ellipsis;
         }
     }
 }

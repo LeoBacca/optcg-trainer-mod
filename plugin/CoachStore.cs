@@ -61,7 +61,9 @@ namespace OPTCGTrainer
         // il tipo (ladder, queue, private, solo) e la coda li sa la mod, giocando: valgono più di quello che si legge nel log
         static void Fill(MatchFile m)
         {
-            if (m.matchKind != null) m.game.kind = m.matchKind;
+            // "solo" su un log con i nomi dei giocatori è una partita multiplayer: quando la rete si chiude (l'avversario esce)
+            // il sim rimette Solo v Self prima che la mod registri la partita (fino alla 0.4.1 diventava "Solo v Self", non contava)
+            m.game.kind = Coach.KindFor(m.matchKind, m.game);
             if (m.matchFormat != null) m.game.format = m.matchFormat;
         }
 
@@ -77,6 +79,7 @@ namespace OPTCGTrainer
                 if (data != null && data.imported.Remove(m.id)) Save(); // letto da CombatLogs prima che la mod lo registrasse
                 if (m.game.continuation && Data.active != null) ImportBefore(m.game); // senza un evento il coach non fa niente
                 Version++;
+                CoachSync.PullSoon(); // partita finita: si guarda anche se nell'estensione ne sono arrivate altre
             }
             catch (Exception e) { Plugin.Log.LogWarning("coach: riassunto della partita non riuscito: " + e.Message); }
         }
@@ -223,26 +226,37 @@ namespace OPTCGTrainer
             return list;
         }
 
-        internal static List<CoachGame> Games() => Coach.Games(Summaries(), TimeZoneInfo.Local, Data.results);
+        internal static List<CoachGame> Games() => Coach.Games(Summaries(), TimeZoneInfo.Local, Data.results, Data.remote.games.Values);
+
+        /// Le partite dell'estensione scaricate dal sito (CoachSync): nel file e, se è cambiato qualcosa, le schermate si rifanno.
+        internal static void MergeRemote(string site, string account, List<RemoteGame> games, long rev)
+        {
+            int before = Data.remote.games.Count;
+            if (!CoachFiles.MergeRemote(Data.remote, site, account, games, rev)) return;
+            Save();
+            Version++;
+            Plugin.Log.LogInfo($"coach: partite dal sito, {Data.remote.games.Count} (prima {before}), fino al rev {Data.remote.rev}");
+        }
 
         // ---- a mano (richiesta di Leo: la connessione salta, il log resta a metà, la mod non parte) ----
 
-        /// L'esito di una partita messo a mano: w o l; null = di nuovo quello che dice il log. Per una partita aggiunta a mano
-        /// cambia il suo esito (null non vale: quella si toglie con RemoveAdded).
+        /// L'esito di una partita messo a mano: w o l; x = DON'T COUNT (fuori dal conto e dal winrate); null = di nuovo quello
+        /// che dice il log. Per una partita aggiunta a mano cambia il suo esito (null e x non valgono: quella si toglie con
+        /// RemoveAdded). Quelle dell'estensione di Chrome qui non si toccano.
         internal static void SetResult(CoachGame g, string result)
         {
-            if (g == null || g.ids.Count == 0 || (result != null && result != "w" && result != "l")) return;
+            if (g == null || g.ids.Count == 0 || g.remote || (result != null && result != "w" && result != "l" && result != "x")) return;
             if (g.added)
             {
                 var mine = Data.added.FirstOrDefault(a => a.id == g.ids[0]);
-                if (mine == null || result == null) return;
+                if (mine == null || result == null || result == "x") return;
                 mine.result = result;
             }
             else
             {
                 foreach (var id in g.ids) Data.results.Remove(id); // una partita fatta di pezzi ha un esito solo
                 // lo stesso esito che dice il log non è "a mano": basta togliere quello messo prima
-                if (result != null && result != (g.byHand ? g.logResult : g.result)) Data.results[g.ids[0]] = result;
+                if (result == "x" || (result != null && result != (g.byHand ? g.logResult : g.result))) Data.results[g.ids[0]] = result;
             }
             Save();
             Version++;
@@ -290,7 +304,8 @@ namespace OPTCGTrainer
                 var st = Coach.Compute(ev, games, Now);
                 // il giorno dopo il torneo l'evento va da solo nell'archivio, con i suoi numeri (scelta di Leo)
                 if (st.over) { Archive(st); return null; }
-                var fix = Coach.TargetsToFix(st, Ready, PlayingSince());
+                // e solo con le partite dell'estensione di Chrome arrivate (o senza sito): CoachSync.SiteReady
+                var fix = Coach.TargetsToFix(st, Ready && CoachSync.SiteReady, PlayingSince());
                 if (fix.Count > 0)
                 {
                     foreach (var t in fix) ev.targets[t.Key] = t.Value;

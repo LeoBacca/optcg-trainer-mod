@@ -32,6 +32,7 @@
 //   coach games           tutte le partite che il coach conosce, con il perché non contano
 //   coach fake <giorni> <al giorno> [esiti di oggi] | off   partite finte solo in memoria (mai salvate), per vedere le schermate
 //                         piene; gli esiti di oggi una lettera per partita, es. "coach fake 6 4 wol" (o = senza esito)
+//   coach sync            le partite segnate nell'estensione di Chrome (scaricate dal sito) e scarica adesso
 //   coach stop            ferma l'evento e lo mette in archivio; "coach archive" elenca l'archivio
 #if DEVTOOLS
 using System;
@@ -412,7 +413,7 @@ namespace OPTCGTrainer
                             {
                                 v = GameSummary.Current, id = "fake" + d + "x" + i, logName = "fake.log", startedAt = Coach.Iso(start), endedAt = Coach.Iso(start.AddMinutes(12 + rnd.Next(20))),
                                 day = Coach.Key(day), result = result, reason = result == "o" ? "unfinished" : result == "w" ? "win" : "loss", ended = result != "o",
-                                myLeader = rnd.NextDouble() < 0.85 ? (ev.leader ?? "OP13-001") : "OP01-001", oppLeader = opp, first = rnd.Next(1, 3),
+                                myLeader = Mine(rnd.NextDouble(), ev.leader), oppLeader = opp, first = rnd.Next(1, 3),
                                 turns = rnd.Next(2, 15), kind = "queue", format = ev.format,
                             });
                         }
@@ -430,6 +431,12 @@ namespace OPTCGTrainer
                         });
                     }
                     return $"{CoachStore.FakeGames.Count} partite finte negli ultimi {days} giorni";
+                case "sync":
+                    // le partite dell'estensione (dal sito) e lo stato mandato: "coach sync" scarica adesso
+                    CoachSync.PullSoon();
+                    var remote = CoachStore.Data.remote;
+                    return $"partite del sito: {remote.games.Count} (fino al rev {remote.rev}, sito {remote.site ?? "-"}); collegato: {Account.Linked}"
+                        + string.Concat(remote.games.Values.OrderBy(r => r.playedAt).Select(r => $"\n  {r.id} {r.result} {r.myLeader ?? "?"} vs {r.oppLeader ?? "?"} · {r.sim ?? "web"} · {(Coach.FromMs(r.playedAt) is DateTime t ? t.ToLocalTime().ToString("dd/MM HH:mm", CultureInfo.InvariantCulture) : "?")} · rev {r.rev}"));
                 case "stop":
                     var done = CoachStore.Stop();
                     return done == null ? "nessun evento attivo" : $"in archivio: {done.ev.name} {done.games}/{done.ev.goal}, serie migliore {done.bestStreak}, livello {done.level}";
@@ -440,6 +447,10 @@ namespace OPTCGTrainer
                 default: return "coach: sottocomando sconosciuto";
             }
         }
+
+        // il mio leader delle partite finte: quattro mazzi, il primo (quello dell'evento, se c'è) il più giocato
+        static string Mine(double r, string eventLeader) =>
+            r < 0.55 ? eventLeader ?? "OP13-001" : r < 0.8 ? "OP18-022" : r < 0.93 ? "EB05-010" : "OP09-042";
 
         static string CoachSet(string args)
         {

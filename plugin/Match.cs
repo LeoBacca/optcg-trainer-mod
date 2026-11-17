@@ -81,6 +81,9 @@ namespace OPTCGTrainer
         {
             int ladder = OPBMatchManager.ActiveServerMatchNo;
             bool solo = game.e_GameStyle == GameStyle.SoloVSelf;
+            // quando la rete si chiude (l'avversario esce, o si torna al menu) il sim rimette Solo v Self prima di buttare via il
+            // log: una partita multiplayer resta multiplayer (fino alla 0.4.1 diventava "Solo v Self" e per il coach non contava)
+            if (solo && m.matchKind != null && m.matchKind != "solo") return;
             bool ranked = ladder > 0 || (!solo && game.isPrivate && game.isTimerLobby && OPBountyOpen(m));
             string kind = solo ? "solo" : ranked ? "ladder" : game.isPrivate ? "private" : "queue";
             if (kind == m.matchKind && (kind != "ladder" || m.ladderMatch == ladder)) return;
@@ -157,6 +160,23 @@ namespace OPTCGTrainer
             }
             try { journal.Checkpoint(); } catch (Exception) { /* già chiuso: il file sul disco è quello che c'è */ }
             Register(game, journal, Restarting ? "spezzata da un turno rifatto" : "abbandonata");
+        }
+
+        /// L'avversario è uscito o la connessione è saltata (GameUi.Tick, bOpponentConnectionLost): il sim spegne la rete e la
+        /// partita non può più andare avanti, ma il log lo butta via solo quando torni al menu. Si registra subito, così compare
+        /// il riquadro di fine partita (con i tasti del coach) mentre sei ancora sul tavolo. Poi Abandon la trova già registrata.
+        static string goneTried;
+
+        internal static void OpponentGone(GameplayLogicScript game)
+        {
+            var journal = Journal(game);
+            if (journal == null || SealedRef(game)) return;
+            var m = ForGame(game);
+            if (m == null || m.Finished || (m.maxTurn < 1 && m.notes.Count == 0)) return; // non era cominciata: ci pensa Abandon
+            if (goneTried == m.id) return; // un tentativo solo per partita: se la copia del log non riesce, ci pensa Abandon uscendo
+            goneTried = m.id;
+            try { journal.Checkpoint(); } catch (Exception) { /* già chiuso: il file sul disco è quello che c'è */ }
+            Register(game, journal, "senza fine (avversario uscito o connessione saltata)");
         }
 
         static void Register(GameplayLogicScript game, ReplayEvidenceJournal journal, string how)

@@ -23,6 +23,29 @@ namespace OPTCGTrainer
         public Dictionary<string, GameSummary> imported = new Dictionary<string, GameSummary>(); // per id del log
         public Dictionary<string, string> results = new Dictionary<string, string>();           // l'esito messo a mano: id del log → w o l
         public List<GameSummary> added = new List<GameSummary>();                                // le partite aggiunte a mano (la mod non le ha registrate)
+        public RemoteGames remote = new RemoteGames();                                           // le partite segnate nell'estensione di Chrome (dal sito)
+    }
+
+    /// Una partita segnata a mano nell'estensione di Chrome (un altro sim), come la dà il sito (GET /api/coach/games).
+    /// Solo i campi che servono al coach: la nota non si tiene.
+#pragma warning disable CS0649 // li scrive Newtonsoft
+    class RemoteGame
+    {
+        public string id, source, sim, result, myLeader, oppLeader;
+        public int? turns;
+        public int first;
+        public long playedAt, updatedAt, rev;
+        public bool deleted;
+    }
+#pragma warning restore CS0649
+
+    /// Le partite del sito scaricate finora: fino a quale rev, da quale sito e per quale collegamento (un altro sito o un
+    /// altro account: si riparte da zero, se no si mescolerebbero le partite di due account).
+    class RemoteGames
+    {
+        public long rev;
+        public string site, account;
+        public Dictionary<string, RemoteGame> games = new Dictionary<string, RemoteGame>(); // per id del sito
     }
 
     static class CoachFiles
@@ -70,6 +93,8 @@ namespace OPTCGTrainer
             data.results ??= new Dictionary<string, string>();
             data.added ??= new List<GameSummary>();
             data.added.RemoveAll(g => g == null || g.id == null);
+            data.remote ??= new RemoteGames();
+            data.remote.games ??= new Dictionary<string, RemoteGame>();
             if (data.active != null)
             {
                 data.active.restDays ??= new List<string>();
@@ -114,6 +139,40 @@ namespace OPTCGTrainer
                 result = result == "w" || result == "l" ? result : "o", reason = "by hand",
                 oppLeader = string.IsNullOrEmpty(oppLeader) ? null : oppLeader, myLeader = string.IsNullOrEmpty(myLeader) ? null : myLeader,
             };
+
+        static readonly System.Text.RegularExpressions.Regex CardId = new System.Text.RegularExpressions.Regex("^[A-Z0-9]{1,6}-[0-9]{3}$");
+
+        /// Le partite del sito che arrivano (GET /api/coach/games?since=rev): quelle nuove o cambiate prendono il posto delle
+        /// vecchie, le lapidi (deleted) le tolgono. Quelle strane (esito che non è w/l, data assurda) si scartano.
+        /// Per site e account diversi da quelli di prima si riparte da zero. Restituisce true se è cambiato qualcosa.
+        internal static bool MergeRemote(RemoteGames r, string site, string account, IEnumerable<RemoteGame> incoming, long rev)
+        {
+            bool changed = false;
+            if (r.site != site || r.account != account)
+            {
+                changed = r.games.Count > 0 || r.rev != 0;
+                r.games.Clear();
+                r.rev = 0;
+                r.site = site;
+                r.account = account;
+            }
+            foreach (var g in incoming ?? Enumerable.Empty<RemoteGame>())
+            {
+                if (g == null || string.IsNullOrEmpty(g.id)) continue;
+                if (g.rev > r.rev) r.rev = g.rev;
+                if (r.games.TryGetValue(g.id, out var old) && old.rev > g.rev) continue; // una risposta vecchia arrivata dopo
+                bool ok = !g.deleted && (g.result == "w" || g.result == "l") && Coach.FromMs(g.playedAt) != null;
+                if (!ok) { changed |= r.games.Remove(g.id); continue; }
+                if (g.myLeader != null && !CardId.IsMatch(g.myLeader)) g.myLeader = null;
+                if (g.oppLeader != null && !CardId.IsMatch(g.oppLeader)) g.oppLeader = null;
+                if (g.sim != null && g.sim.Length > 40) g.sim = g.sim.Substring(0, 40);
+                if (g.turns is int t && (t < 1 || t > 99)) g.turns = null;
+                r.games[g.id] = g;
+                changed = true;
+            }
+            if (rev > r.rev) { r.rev = rev; changed = true; }
+            return changed;
+        }
 
         /// Di un log senza leader (il menu, un Quits!) basta ricordare che è già stato letto: id, nome, dimensione, inizio.
         internal static GameSummary Slim(GameSummary s) =>

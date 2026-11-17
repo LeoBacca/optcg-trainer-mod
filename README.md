@@ -28,14 +28,20 @@ That's it. Play as usual.
 you want to play: the coach works out how many games a day, and keeps track of them inside OPTCGSim.
 Open it from *Settings › EVENT COACH* (once your event is set, it's in the main menu too).
 - *Today*: today's games, your streak of days (rest days you plan don't break it) and a 20-level pass up to EVENT READY.
-- *Stats*: a calendar of the games you played, win rate going first and second, matchups by opponent leader,
-  games per week against your plan.
-- Today's goal is right there on the Private screen, and at the end of each game a line tells you if it counted.
+- *Stats*: a calendar of the games you played, win rate going first and second, **your decks** (win rate of every
+  leader you played: click one to see its matchups), matchups by opponent leader, games per week against your plan.
+- Today's goal is right there on the Private screen, and at the end of each game a line tells you if it counted, with
+  three buttons: **WON · LOST · DON'T COUNT**. The result read from the log is already lit: click to change it.
 - Lost the connection, or the game froze? The game still counts, and in *Today* you say if you **won or lost** it.
   *Edit* fixes a wrong result, and *+ Add game* adds a game the mod didn't record.
+- Your opponent left in the middle of a game? It's a win, and it counts (before 0.5.0 it was dropped as Solo v Self).
+- **Games on other simulators** (from 0.5.0): log them by hand in the OPTCG Trainer Chrome extension and they count in
+  the same coach. The extension shows the same goal of the day.
 
 Games count if you play them with the mod, in the event format, and they reach turn 3 (ladder, queue and private;
-Solo v Self if you want). Everything stays on your PC, in `%LOCALAPPDATA%\OPTCGTrainer\coach.json`.
+Solo v Self if you want). The coach lives on your PC, in `%LOCALAPPDATA%\OPTCGTrainer\coach.json`. If the sim is linked
+to your account, from 0.5.0 the mod also sends optcgtrainer.com a summary of your plan (the event, and how many games,
+wins and losses each day: no names, no logs), so the extension can show it, and downloads the games you logged there.
 
 ![Event Coach statistics](docs/images/coach.jpg)
 

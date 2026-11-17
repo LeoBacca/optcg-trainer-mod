@@ -18,6 +18,8 @@ The mod never sees your cookies or your password. You link the sim once, like a 
 - `GET /api/me`
 - `POST /api/replays` — body: the game log as OPTCGSim wrote it; headers `X-File-Name`, `X-Played-At`
 - `POST /api/replays/:id/notes` — `{ line, body }`, only on your own games, only private notes
+- from 0.5.0, the Event Coach: `GET /api/coach/games?since=<rev>` (the games you logged by hand in the Chrome extension)
+  and `PUT /api/coach/state` (a summary of your plan: the event, and games, wins and losses for each day; no names, no logs)
 
 `line` is how many lines OPTCGSim had written to the log when you opened the note: on the site the note goes to the
 moment of the game at that line. The token is stored in `%LOCALAPPDATA%\OPTCGTrainer\account.json`, it's sent only to the

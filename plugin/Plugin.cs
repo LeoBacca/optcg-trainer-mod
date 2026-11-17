@@ -24,7 +24,7 @@ namespace OPTCGTrainer
     public class Plugin : BaseUnityPlugin
     {
         public const string Guid = "com.optcgtrainer.mod";
-        public const string Version = "0.4.1";
+        public const string Version = "0.5.0";
         internal static ManualLogSource Log;
         internal static Plugin Instance;
         internal static Sprite LogoSprite;
@@ -38,7 +38,7 @@ namespace OPTCGTrainer
         static readonly (string name, Action tick)[] Ticks =
         {
             ("menu", MenuButton.FollowSource), ("partita", GameUi.Tick), ("telecomando", DevCommands.Tick), ("multiplayer", CleanMultiplayer.Tick),
-            ("incolla", PasteCode.Tick), ("coach", CoachStore.Tick), ("schermate del coach", CoachUi.Tick),
+            ("incolla", PasteCode.Tick), ("coach", CoachStore.Tick), ("schermate del coach", CoachUi.Tick), ("coach sul sito", CoachSync.Tick),
         };
         readonly string[] lastError = new string[Ticks.Length];
 
@@ -76,6 +76,7 @@ namespace OPTCGTrainer
             ("PlayerState", "Lgo_MyDeploy"),
             ("GameplayLogicScript", "go_P0Board"),
             ("GameplayLogicScript", "e_GameStyle"),
+            ("GameplayLogicScript", "bOpponentConnectionLost"),
             ("GameplayLogicScript", "eMultiStyle"),
             ("GameplayLogicScript", "isPrivate"),
             ("GameplayLogicScript", "isTimerLobby"),

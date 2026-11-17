@@ -27,7 +27,8 @@ namespace OPTCGTrainer
     class GameSummary
     {
         /// Sale quando il riassunto impara qualcosa di nuovo: quelli più vecchi si rileggono dal log (se c'è ancora).
-        internal const int Current = 2;
+        /// 3 (0.5.0): l'avversario che esce a metà di una partita multiplayer ("[Opponent] Quits!") è una vittoria.
+        internal const int Current = 3;
         public int v;                // la versione del riassunto
         public string id;            // l'id del log: il guid nel nome del file (= ReplayEvidenceJournal.Id)
         public string logName;
@@ -36,7 +37,7 @@ namespace OPTCGTrainer
         public string day;           // il giorno del coach (yyyy-MM-dd), fissato quando si legge: se poi cambia il fuso del PC non si sposta
         public bool ended;           // c'è la riga RZ1|END: la partita è chiusa (un log dopo di lei non può essere un suo pezzo)
         public string result;        // w · l · o (incerto: disconnessione, uscita, log senza la riga di fine)
-        public string reason;        // dalla riga END: win, loss, concede, opponent_concede; se no concede, quit, disconnect, unfinished
+        public string reason;        // dalla riga END: win, loss, concede, opponent_concede; se no concede, opponent_quit, quit, disconnect, unfinished
         public string myLeader, myLeaderName, oppLeader, oppLeaderName; // id della carta (OP13-001) e nome (Monkey D. Luffy)
         public int first;            // 1 = sono andato primo, 2 = secondo, 0 = non si sa
         public int turns;            // i turni come li conta il sito: quante volte comincia un turno (T1, T2…)
@@ -89,6 +90,9 @@ namespace OPTCGTrainer
         public bool added;           // aggiunta a mano (niente log): conta sempre, nei giorni del piano
         public bool byHand;          // l'esito l'ha messo il giocatore (logResult: quello che dice il log)
         public string logResult;
+        public bool excluded;        // DON'T COUNT: il giocatore l'ha tolta dal conto (esito a mano "x")
+        public bool remote;          // segnata a mano nell'estensione di Chrome (un altro sim): arriva dal sito, qui si guarda e basta
+        public string sim;           // per le partite del sito: dove è stata giocata (o null)
         public double? minutes;      // null se non si sa (o se è assurda: zero, o più di 3 ore)
         public string why;           // null = conta per l'evento; se no il perché, in inglese come lo vedrà il giocatore
         public string Kind => kind ?? (ladderMatch > 0 ? "ladder" : noNames ? "solo" : null);
@@ -110,7 +114,7 @@ namespace OPTCGTrainer
 
     class Matchup
     {
-        public string leader, name;  // il leader dell'avversario
+        public string leader, name;  // il leader dell'avversario (o il mio, in "Your decks")
         public Record record = new Record();
         public bool Few => record.wins + record.losses < Coach.MinMatchupGames; // "–": meno di 3 partite con un esito
     }
@@ -150,6 +154,7 @@ namespace OPTCGTrainer
             todayRecord = new Record(), withLeader = new Record(), withLeaderToday = new Record();
         public string leaderName;
         public List<Matchup> matchups, matchupsWithLeader;
+        public List<Matchup> myDecks;  // i miei leader: partite, W-L e winrate di ognuno, in ordine di partite
         public List<CoachDay> days = new List<CoachDay>();
         public List<CoachWeek> weeks = new List<CoachWeek>();
         public double totalMinutes;
@@ -188,8 +193,8 @@ namespace OPTCGTrainer
                 s.id = id;
                 s.startedAt = Coach.Iso(start);
             }
-            bool header = false, version = false, names = false, turnEnded = false, quit = false, cut = false;
-            int active = 0, firstTurn = 0, chose = 0;
+            bool header = false, version = false, names = false, turnEnded = false, cut = false, cutFirst = false;
+            int active = 0, firstTurn = 0, chose = 0, quitBy = 0;
             string end = null, endReason = null, conceded = null;
             var leaderNames = new Dictionary<string, string>();
             foreach (var line in lines)
@@ -198,7 +203,9 @@ namespace OPTCGTrainer
                 {
                     var f = line.Split('|');
                     if (f.Length < 2) continue;
-                    if (f[1] == "HDR") header = true;
+                    // la partita comincia qui: un "[Opponent] Quits!" (o una disconnessione) scritto prima è dell'avversario
+                    // della lobby di prima (5 log veri di Leo su 134 cominciano così), non di questa partita
+                    if (f[1] == "HDR") { header = true; quitBy = 0; cut = false; cutFirst = false; }
                     else if (f[1] == "META" && f.Length > 3) int.TryParse(f[3], NumberStyles.Integer, CultureInfo.InvariantCulture, out s.ladderMatch);
                     else if (f[1] == "PLY" && f.Length > 4)
                     {
@@ -249,7 +256,7 @@ namespace OPTCGTrainer
                 }
                 else if (body == "End Turn") turnEnded = true;
                 else if (body.StartsWith("Concedes", StringComparison.Ordinal)) conceded = p == 1 ? "l" : "w";
-                else if (body.StartsWith("Quits", StringComparison.Ordinal)) quit = true;
+                else if (body.StartsWith("Quits", StringComparison.Ordinal) && quitBy == 0) { quitBy = p; cutFirst = cut; } // chi è uscito per primo
                 if (body.Contains("Disconnected")) cut = true;
             }
             s.continuation = header && !version;
@@ -257,11 +264,14 @@ namespace OPTCGTrainer
             s.first = firstTurn != 0 ? firstTurn : chose;
             if (s.myLeader != null && leaderNames.TryGetValue(s.myLeader, out var mine)) s.myLeaderName = mine;
             if (s.oppLeader != null && leaderNames.TryGetValue(s.oppLeader, out var theirs)) s.oppLeaderName = theirs;
-            // l'esito: la riga END (sigillata dal sim) vale più di tutto; senza, come il sito: concede sì, disconnessione e uscita incerte
+            // l'esito: la riga END (sigillata dal sim) vale più di tutto; senza: concede sì, disconnessione e uscita mia incerte.
+            // L'avversario che esce a metà di una partita multiplayer (Back to Main: "[Opponent] Quits!", poi il sim non scrive più
+            // niente) ha abbandonato: vinta (0.5.0; prima era incerta, e la partita finiva anche tra le "Solo v Self", vedi Match.Describe)
             s.ended = endReason != null;
             if (end != null) { s.result = end; s.reason = endReason; }
             else if (conceded != null) { s.result = conceded; s.reason = conceded == "l" ? "concede" : "opponent_concede"; }
-            else s.reason = cut ? "disconnect" : quit ? "quit" : "unfinished";
+            else if (quitBy == 2 && names && !cutFirst) { s.result = "w"; s.reason = "opponent_quit"; }
+            else s.reason = cut ? "disconnect" : quitBy != 0 ? "quit" : "unfinished";
             s.kind = s.ladderMatch > 0 ? "ladder" : s.noNames ? "solo" : null;
             return s;
         }
@@ -283,6 +293,10 @@ namespace OPTCGTrainer
         internal static DateTime? Utc(string iso) =>
             iso != null && DateTime.TryParse(iso, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var t)
                 ? t : (DateTime?)null;
+
+        /// I millisecondi UTC del sito (playedAt) come ora UTC; null se sono fuori dal 2000–2100.
+        internal static DateTime? FromMs(long ms) =>
+            ms > 946684800000L && ms < 4102444800000L ? new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddMilliseconds(ms) : (DateTime?)null;
 
         internal static DateTime? Day(string key) =>
             key != null && DateTime.TryParseExact(key, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d) ? d : (DateTime?)null;
@@ -310,6 +324,12 @@ namespace OPTCGTrainer
             return fix;
         }
 
+        /// Il tipo di una partita: quello che la mod ha visto giocando vale più di quello letto dal log, ma "solo" su un log con
+        /// i nomi dei giocatori no: è una partita multiplayer finita senza la riga END (l'avversario è uscito), e il sim rimette
+        /// Solo v Self quando la rete si chiude. Fino alla 0.4.1 così diventava "Solo v Self" e non contava.
+        internal static string KindFor(string seenByMod, GameSummary log) =>
+            seenByMod == null || (seenByMod == "solo" && !log.noNames) ? log.kind == "solo" && !log.noNames ? null : log.kind : seenByMod;
+
         static bool Same(string a, string b) => a == null || b == null || a == b;
 
         /// Dai log alle partite: in ordine di inizio, il log di un turno rifatto si attacca alla partita del log appena prima,
@@ -317,7 +337,9 @@ namespace OPTCGTrainer
         /// mai una partita a sé: sarebbe una partita "corta" che non c'è (o una partita contata due volte).
         /// results: gli esiti messi a mano (id del log → w o l), che valgono più di quello che dice il log. Le partite aggiunte
         /// a mano (added) non hanno un log: non entrano nella catena dei pezzi, si aggiungono in fondo così come sono.
-        internal static List<CoachGame> Games(IEnumerable<GameSummary> logs, TimeZoneInfo tz, IDictionary<string, string> results = null)
+        /// results: anche "x" (DON'T COUNT: la partita esce dal conto). remote: le partite segnate a mano nell'estensione di
+        /// Chrome, scaricate dal sito: contano sempre nei giorni del piano, come quelle aggiunte nel sim.
+        internal static List<CoachGame> Games(IEnumerable<GameSummary> logs, TimeZoneInfo tz, IDictionary<string, string> results = null, IEnumerable<RemoteGame> remote = null)
         {
             var list = new List<CoachGame>();
             CoachGame last = null;
@@ -370,11 +392,12 @@ namespace OPTCGTrainer
             if (results != null)
                 foreach (var g in list)
                 {
-                    var by = g.ids.Where(id => id != null && results.ContainsKey(id)).Select(id => results[id]).FirstOrDefault(r => r == "w" || r == "l");
+                    var by = g.ids.Where(id => id != null && results.ContainsKey(id)).Select(id => results[id]).FirstOrDefault(r => r == "w" || r == "l" || r == "x");
                     if (by == null) continue;
                     g.logResult = g.result;
-                    g.result = by;
                     g.byHand = true;
+                    if (by == "x") g.excluded = true; // l'esito resta quello del log: torna se la si rimette nel conto
+                    else g.result = by;
                 }
             foreach (var s in all.Where(s => s.added && s.id != null))
             {
@@ -386,6 +409,19 @@ namespace OPTCGTrainer
                     kind = s.kind, format = s.format, day = Day(s.day) ?? default, added = true, byHand = true,
                 };
                 g.ids.Add(s.id);
+                list.Add(g);
+            }
+            foreach (var r in remote ?? Enumerable.Empty<RemoteGame>())
+            {
+                if (r == null || r.id == null || r.deleted || (r.result != "w" && r.result != "l")) continue;
+                if (!(FromMs(r.playedAt) is DateTime at)) continue;
+                var g = new CoachGame
+                {
+                    startUtc = at, endUtc = at, result = r.result, reason = "by hand", myLeader = r.myLeader, oppLeader = r.oppLeader,
+                    first = r.first == 1 || r.first == 2 ? r.first : 0, turns = r.turns ?? 0, added = true, byHand = true, remote = true,
+                    sim = string.IsNullOrWhiteSpace(r.sim) ? null : r.sim.Trim(),
+                };
+                g.ids.Add("web-" + r.id);
                 list.Add(g);
             }
             list.Sort((a, b) => a.startUtc.CompareTo(b.startUtc));
@@ -492,12 +528,16 @@ namespace OPTCGTrainer
             return null;
         }
 
+        internal const string NotCountedByChoice = "not counted (your choice)";
+
         /// Perché una partita non conta per l'evento; null se conta.
         internal static string Why(CoachEvent ev, Plan p, CoachGame g)
         {
+            if (g.excluded) return NotCountedByChoice; // DON'T COUNT, scelta del giocatore
             if (g.day < p.start) return "before the plan started";
             if (g.day > p.eventDay) return "after the event";
-            // aggiunta a mano: la mod non andava, il giocatore dice che l'ha giocata. Conta e basta (tipo, formato e turni non si sanno)
+            // aggiunta a mano (nel sim, o nell'estensione di Chrome per un altro sim): il giocatore dice che l'ha giocata. Conta e
+            // basta (tipo, formato e turni non si sanno; "le partite senza la mod non contano" vale per i log di Batsu)
             if (g.added) return null;
             // la mod non c'era (sim aperto senza la mod): non si sa il formato né se era queue o private
             if (g.imported) return "played without the mod";
@@ -535,6 +575,33 @@ namespace OPTCGTrainer
                 foreach (var g in x) m.record.Add(g);
                 return m;
             }).OrderByDescending(m => m.record.games).ThenBy(m => m.name ?? m.leader).ToList();
+
+        /// I miei mazzi, per leader ("?" = partite senza il mio leader: aggiunte a mano senza sceglierlo).
+        static List<Matchup> Decks(IEnumerable<CoachGame> games) =>
+            games.GroupBy(g => g.myLeader ?? "?").Select(x =>
+            {
+                var m = new Matchup { leader = x.Key, name = x.Select(g => g.myLeaderName).FirstOrDefault(n => n != null) };
+                foreach (var g in x) m.record.Add(g);
+                return m;
+            }).OrderByDescending(m => m.record.games).ThenBy(m => m.name ?? m.leader).ToList();
+
+        /// I matchup di uno dei miei mazzi (il suo leader, "?" = senza leader; null = tutti i mazzi), sulle partite che contano.
+        internal static List<Matchup> MatchupsWith(CoachState st, string myLeader) =>
+            myLeader == null ? st.matchups : Matchups(st.counted.Where(g => string.Equals(g.myLeader ?? "?", myLeader, StringComparison.OrdinalIgnoreCase)));
+
+        /// Per il sito (contratto coach-sync, punto 2): giorno per giorno solo le partite di Batsu che contano (registrate dalla
+        /// mod e aggiunte a mano nel sim). Quelle dell'estensione no: chi legge le somma, così niente si conta due volte.
+        internal static SortedDictionary<string, Record> SiteDays(CoachState st)
+        {
+            var days = new SortedDictionary<string, Record>(StringComparer.Ordinal);
+            foreach (var g in st.counted.Where(g => !g.remote))
+            {
+                var key = Key(g.day);
+                if (!days.TryGetValue(key, out var r)) days[key] = r = new Record();
+                r.Add(g);
+            }
+            return days;
+        }
 
         /// Tutto il coach a quest'ora. Pura: i numeri dei giorni da fissare escono in newTargets (li salva CoachStore).
         internal static CoachState Compute(CoachEvent ev, List<CoachGame> games, DateTime nowLocal)
@@ -641,6 +708,7 @@ namespace OPTCGTrainer
             st.leaderName = games.Where(g => Mine(ev, g)).Select(g => g.myLeaderName).FirstOrDefault(n => n != null);
             st.matchups = Matchups(st.counted);
             st.matchupsWithLeader = string.IsNullOrEmpty(ev.leader) ? st.matchups : Matchups(st.counted.Where(g => Mine(ev, g)));
+            st.myDecks = Decks(st.counted);
 
             // le settimane (da lunedì), con la linea del piano: per i giorni già cominciati il loro numero,
             // per quelli che vengono il numero di adesso (riposi esclusi)

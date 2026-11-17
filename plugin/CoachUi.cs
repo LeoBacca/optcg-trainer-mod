@@ -256,6 +256,7 @@ namespace OPTCGTrainer
             bool show = st != null && Plugin.HideMultiplayerExtras.Value && host.go_IPAddress != null && host.go_IPAddress.activeInHierarchy
                 && host.go_OPBounty != null && host.go_OPBounty.activeInHierarchy && host.go_DeckSelector != null && !IsOpen;
             if (!show) { if (privateBox != null) privateBox.SetActive(false); return; }
+            if (privateBox == null || !privateBox.activeSelf) CoachSync.PullSoon(); // Private si è appena aperta
             if (privateBox == null)
             {
                 try { BuildPrivateBox(); }
@@ -344,19 +345,22 @@ namespace OPTCGTrainer
             if (d.isToday) CoachLook.Frame(parent, x - 2, y - 2, s + 4, s + 4, Color.white, 2);
         }
 
-        /// La riga a fine partita, sotto il riquadro della mod: quanto manca oggi, o perché questa partita non conta.
-        /// null senza un evento (o se la partita non è ancora riassunta).
-        internal static string EndLine(MatchFile m)
+        /// La riga a fine partita, sotto il riquadro della mod: quanto manca oggi, o perché questa partita non conta; e la
+        /// partita del coach (per i tasti WON · LOST · DON'T COUNT). null senza un evento (o se la partita non è ancora riassunta).
+        internal static (string line, CoachGame game) EndLine(MatchFile m)
         {
-            if (m == null || m.game == null) return null;
+            if (m == null || m.game == null) return (null, null);
             var st = State;
-            if (st == null) return null;
+            if (st == null) return (null, null);
             var g = st.games.FirstOrDefault(x => x.ids.Contains(m.id));
-            if (g == null) return null;
-            if (g.why != null) return $"Event Coach: {g.why}, not counted";
-            // senza esito (connessione saltata, log a metà): conta lo stesso, e l'esito si mette a mano nella pagina del coach
-            return Counted(st) + (g.result == "o" ? " · no result: set it in Event Coach" : "");
+            if (g == null) return (null, null);
+            if (g.why != null) return ("Event Coach: " + NotCounted(g.why), g);
+            // senza esito (connessione saltata, log a metà): conta lo stesso, e l'esito si mette con i tasti lì sotto
+            return (Counted(st) + (g.result == "o" ? " · no result: pick one" : ""), g);
         }
+
+        /// "too short (turn 1), not counted"; "not counted (your choice)" lo dice già.
+        internal static string NotCounted(string why) => why.StartsWith("not counted", StringComparison.Ordinal) ? why : why + ", not counted";
 
         static string Counted(CoachState st)
         {
@@ -388,6 +392,7 @@ namespace OPTCGTrainer
             try
             {
                 dirty = true;
+                CoachSync.PullSoon(); // le partite segnate nell'estensione di Chrome: arrivano mentre guardi
                 if (State == null && which != "setup") which = "setup";
                 if (root == null) BuildRoot();
                 if (root == null) return;
