@@ -87,7 +87,12 @@ namespace OPTCGTrainer
             CoachLook.Write(p, 684, 272, 78, 40, "Format", 19, CoachLook.FormText, false, TextAlignmentOptions.MidlineLeft);
             var formats = new List<string> { "Any format" };
             formats.AddRange(setupFormats);
-            Dropdown(p, 762, 275, 230, formats, Math.Max(0, formats.IndexOf(draft.format ?? "Any format")), i => draft.format = i == 0 ? null : formats[i], 19);
+            // un formato che il sim non ha più (1.45b: «OP18» è diventato «EB05 (Latam)»): resta in fondo, segnato, finché non lo cambi.
+            // Senza questa voce la tendina mostrerebbe «Any format» e l'evento resterebbe con il formato vecchio
+            var gone = GoneFormat(draft);
+            if (gone != null) formats.Add(gone + " · gone");
+            int picked = gone != null ? formats.Count - 1 : Math.Max(0, formats.IndexOf(draft.format ?? "Any format"));
+            Dropdown(p, 762, 275, 230, formats, picked, i => { if (gone == null || i != formats.Count - 1) draft.format = i == 0 ? null : formats[i]; }, 19);
 
             // 2 · il piano
             Card(p, 184, 338, 832, 250);
@@ -434,7 +439,17 @@ namespace OPTCGTrainer
             redraw = true;
         }
 
-        // i formati come li chiama il menu del sim (Standard, OP18, Extra Regulation…)
+        /// Il formato dell'evento, se la versione del sim che gira adesso non ha più una coda con quel nome (le partite nuove
+        /// non conterebbero: "other format"). null se va bene, se non c'è un formato o se i nomi del sim non si possono leggere.
+        /// Il formato non si cambia da solo: un nome nuovo può essere davvero un altro formato.
+        internal static string GoneFormat(CoachEvent ev)
+        {
+            var format = ev?.format?.Trim();
+            if (string.IsNullOrEmpty(format) || UnityEngine.Object.FindAnyObjectByType<GameplayLogicScript>() == null) return null;
+            return Formats().Any(f => string.Equals(f.Trim(), format, StringComparison.OrdinalIgnoreCase)) ? null : format;
+        }
+
+        // i formati come li chiama il menu del sim (Standard, EB05 (Latam), Extra Regulation…)
         static List<string> Formats()
         {
             var game = UnityEngine.Object.FindAnyObjectByType<GameplayLogicScript>();

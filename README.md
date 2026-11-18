@@ -112,6 +112,11 @@ On 0.3.x there's no such line: download the new zip once and run **Install OPTCG
 ## When OPTCGSim updates
 
 The mod survives updates: OPTCGSim's patcher keeps `winhttp.dll`, and the rest is outside its folder.
+From 0.5.1 the mod should also come back by itself when the patcher restarts OPTCGSim after the update (before, that restart
+opened OPTCGSim without the mod). If it doesn't, close OPTCGSim and open it from the **OPTCGSim + Trainer** shortcut.
+How: while OPTCGSim updates, the mod leaves a small `doorstop_config.ini` in the patcher's new files, so the restarted OPTCGSim
+loads it; the mod deletes that file as soon as it starts, so opening `OPTCGSim.exe` directly still starts the game without the mod.
+No OPTCGSim file is changed.
 If an update changes something the mod uses, that part turns itself off and a small line at the top of the screen says so;
 OPTCGSim keeps working as usual. When a fixed version is out, the update line above the OPTCG TRAINER button offers it.
 

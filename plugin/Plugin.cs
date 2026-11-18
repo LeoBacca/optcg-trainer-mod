@@ -7,6 +7,7 @@
 //                    il codice della stanza di OPBounty messo da solo nel campo di Private (PasteCode.cs)
 //   Event Coach      un piano di partite per un torneo: Setup da Settings, Today e Stats, il riquadro in Private, la riga a fine
 //                    partita (CoachUi.cs e le altre Coach*.cs; i calcoli in Coach.cs, i file in CoachStore.cs e CoachFiles.cs)
+//   sim aggiornato   la mod torna da sola quando il patcher di Batsu riapre il sim nuovo (SimUpdate.cs)
 // Non cambia le regole né la rete del sim: aggiunge interfaccia, legge il log, scrive solo file suoi (Store.cs).
 using System;
 using System.Linq;
@@ -24,7 +25,7 @@ namespace OPTCGTrainer
     public class Plugin : BaseUnityPlugin
     {
         public const string Guid = "com.optcgtrainer.mod";
-        public const string Version = "0.5.0";
+        public const string Version = "0.5.1";
         internal static ManualLogSource Log;
         internal static Plugin Instance;
         internal static Sprite LogoSprite;
@@ -112,6 +113,8 @@ namespace OPTCGTrainer
             ("CardDefinition", "characterName"),
             ("CardDefinition", "cardColors"),
             ("CardDefinition", "cardType"),
+            // la mod torna da sola dopo un aggiornamento del sim (SimUpdate.cs)
+            ("UpdateCheckScript", "Start"),
         };
 
         void Awake()
@@ -120,6 +123,7 @@ namespace OPTCGTrainer
             Instance = this;
             QuietInPlayerLog();
             Log.LogInfo($"OPTCG Trainer {Version} su Unity {Application.version} / {Application.unityVersion}");
+            SimUpdate.CleanUp();
             site = Config.Bind("Site", "Url", "https://optcgtrainer.com", "The OPTCG Trainer website the mod links to and uploads games to.");
             FocusMode = Config.Bind("Game", "FocusMode", false, "Focus mode: during a game, hide everything except the board, the choices, Back to Main and Concede.");
             FocusFullscreen = Config.Bind("Game", "FocusFullscreen", true, "Focus mode also turns the window into full screen (like F11 in a browser). Turning Focus mode off brings the window back.");
@@ -133,10 +137,15 @@ namespace OPTCGTrainer
             CheckHooks();
             LoadLogo();
             Patch();
+            // se il controllo degli aggiornamenti del sim era già partito prima della mod, l'aggancio a Start è arrivato tardi
+            // (in un metodo a parte: se un giorno UpdateCheckScript sparisce, qui c'è solo un'eccezione e Awake va avanti)
+            try { SimUpdate.BeginIfChecking(); }
+            catch (Exception e) { Log.LogWarning("aggiornamento del sim: " + e.Message); }
             try { Match.RecoverLeftovers(); } catch (Exception e) { Log.LogWarning("recupero delle partite: " + e.Message); }
             Account.Init();
             SceneManager.sceneLoaded += (scene, mode) =>
             {
+                SimUpdate.SceneLoaded(scene);
                 if (MenuButton.Instance == null) StartCoroutine(MenuButton.AddWhenReady());
             };
         }

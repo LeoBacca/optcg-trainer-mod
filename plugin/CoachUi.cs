@@ -319,7 +319,9 @@ namespace OPTCGTrainer
             CoachLook.Write(box, 256 + X + last.Count * 28 + 6, 471 + Y, 200, 26, st.streak == 1 ? "1-day streak" : st.streak + "-day streak", 19, Color.white, true, TextAlignmentOptions.TopLeft, true);
             // solo quelle di oggi: una vecchia di cui non ricordi l'esito non deve restare lì per sempre (in Today ci sono tutte)
             int noResult = st.todayGames.Count(g => g.why == null && g.result == "o");
-            if (noResult > 0) CoachLook.Write(box, 220 + X, 504 + Y, 390, 20, $"{Coach.N(noResult, "game")} without a result · set it in Event Coach ›", 14, CoachLook.Gold);
+            var gone = GoneFormat(st.ev);
+            if (gone != null) CoachLook.Write(box, 220 + X, 504 + Y, 390, 20, $"Format {Safe(gone)} is no longer in OPTCGSim · change it in Setup ›", 14, CoachLook.Warn);
+            else if (noResult > 0) CoachLook.Write(box, 220 + X, 504 + Y, 390, 20, $"{Coach.N(noResult, "game")} without a result · set it in Event Coach ›", 14, CoachLook.Gold);
             else CoachLook.Write(box, 220 + X, 504 + Y, 390, 20, $"Pass level {st.level} / {Coach.Levels} · open Event Coach ›", 14, CoachLook.Label);
             bg.transform.SetAsFirstSibling();
         }
@@ -456,9 +458,12 @@ namespace OPTCGTrainer
                 if (tab == "setup") BuildSetup(page, st);
                 else
                 {
+                    // un formato che il sim non ha più si dice al posto del formato (le partite nuove non conterebbero)
+                    var gone = GoneFormat(st.ev);
+                    var format = gone != null ? $"<color=#ff9a7a>format {Safe(gone)} is no longer in OPTCGSim: change it in Setup</color>" : st.ev.format ?? "any format";
                     Header(page, st, tab == "stats"
-                        ? $"since {Day(st.start)} · {Kinds(st.ev)} · {st.ev.format ?? "any format"} · turn {Coach.MinTurns}+"
-                        : string.Join(" · ", new[] { Day(st.eventDay), st.ev.format ?? "any format", st.ev.leader != null ? LeaderName(st.ev.leader, st.leaderName) : null }.Where(x => x != null)));
+                        ? $"since {Day(st.start)} · {Kinds(st.ev)} · {format} · turn {Coach.MinTurns}+"
+                        : string.Join(" · ", new[] { Day(st.eventDay), format, st.ev.leader != null ? LeaderName(st.ev.leader, st.leaderName) : null }.Where(x => x != null)));
                     if (tab == "stats") BuildStats(page, st); else BuildToday(page, st);
                 }
             }

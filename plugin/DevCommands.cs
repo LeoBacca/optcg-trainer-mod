@@ -34,6 +34,12 @@
 //                         piene; gli esiti di oggi una lettera per partita, es. "coach fake 6 4 wol" (o = senza esito)
 //   coach sync            le partite segnate nell'estensione di Chrome (scaricate dal sito) e scarica adesso
 //   coach stop            ferma l'evento e lo mette in archivio; "coach archive" elenca l'archivio
+//   card <giocatore> <n>  un clic del sim sulla carta n della mano (da 0): gioca, sceglie (per avere log con carte giocate)
+//   env                   le variabili DOORSTOP_* del processo (quelle che erediterebbe un sim aperto da qui)
+//   updatetest <ps1> [keepenv]  prova dell'aggiornamento del sim (tools\prova-aggiornamento.ps1): fa partire SimUpdate come al
+//                         controllo degli aggiornamenti e poi lancia lo script come UpdateCheckScript lancia DoPatch.ps1
+//                         (powershell, stessi argomenti, aspettando che finisca: il sim resta fermo). keepenv = rimette
+//                         DOORSTOP_DISABLE e DOORSTOP_INITIALIZED, cioè come una mod senza la correzione. La risposta arriva prima del lancio.
 #if DEVTOOLS
 using System;
 using System.Globalization;
@@ -68,9 +74,25 @@ namespace OPTCGTrainer
 
         static string previewId;
 
+        static string updateScript;
+
         internal static void Tick()
         {
             if (!Enabled) return;
+            if (updateScript != null)
+            {
+                var script = updateScript;
+                updateScript = null;
+                // come UpdateCheckScript.CheckForUpdate con DoPatch.ps1 (stessa riga di comando, UseShellExecute com'è, il thread
+                // principale fermo finché finisce); in più solo la finestra ridotta a icona, per non coprire lo schermo nelle prove
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "powershell.exe",
+                    Arguments = "-NoProfile -ExecutionPolicy bypass -noninteractive -file \"" + script + "\"",
+                    WindowStyle = System.Diagnostics.ProcessWindowStyle.Minimized,
+                }).WaitForExit();
+                Plugin.Log.LogInfo("updatetest: lo script è finito e il sim è ancora aperto");
+            }
             // il sim spegne la carta grande appena il mouse passa sopra una carta: si rimette a ogni fotogramma
             if (previewId != null)
             {
@@ -138,6 +160,26 @@ namespace OPTCGTrainer
                     return string.Join("\n", Resources.FindObjectsOfTypeAll<TMP_FontAsset>().Select(f => $"{f.name} · bold={(f.fontWeightTable != null && f.fontWeightTable.Length > 7 && f.fontWeightTable[7].regularTypeface != null ? f.fontWeightTable[7].regularTypeface.name : "-")} boldSpacing={f.boldSpacing}"));
                 case "hover": return Tap(arg, true);
                 case "canvases": return Canvases();
+                case "card":
+                    // un clic del sim sulla carta n della mano del giocatore 0 o 1 (da 0), es. "card 0 3": gioca, sceglie
+                    var ci = arg.Split(' ');
+                    var gk = UnityEngine.Object.FindAnyObjectByType<GameplayLogicScript>();
+                    var hand = gk.Lps_Players[int.Parse(ci[0])].Lgo_MyHand;
+                    var chosen = hand[int.Parse(ci[1])];
+                    typeof(GameplayLogicScript).GetMethod("HandleMouseClickCard", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(gk, new object[] { chosen });
+                    return "clic su " + Knowledge.Id(chosen);
+                case "env":
+                    return string.Join("\n", Environment.GetEnvironmentVariables().Keys.Cast<string>().Where(k => k.StartsWith("DOORSTOP", StringComparison.OrdinalIgnoreCase))
+                        .OrderBy(k => k).Select(k => k + "=" + Environment.GetEnvironmentVariable(k)).DefaultIfEmpty("nessuna variabile DOORSTOP_*"));
+                case "updatetest":
+                    var parts = arg.Split(' ');
+                    var keep = parts.Length > 1 && parts[parts.Length - 1] == "keepenv";
+                    var ps1 = keep ? arg.Substring(0, arg.Length - " keepenv".Length).Trim() : arg;
+                    if (!File.Exists(ps1)) return "script non trovato: " + ps1;
+                    SimUpdate.Begin(SceneManager.GetActiveScene().name);
+                    if (keep) SimUpdate.PutBackDoorstopVars();
+                    updateScript = ps1;
+                    return "parte " + ps1 + (keep ? " (con DOORSTOP_DISABLE e DOORSTOP_INITIALIZED, come senza la correzione)" : "");
                 default: return "comando sconosciuto";
             }
         }
