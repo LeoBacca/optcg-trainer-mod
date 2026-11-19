@@ -6,7 +6,10 @@
 // delle impostazioni (Site.Url), mai dietro a un rinvio.
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json;
@@ -32,6 +35,247 @@ namespace OPTCGTrainer
         internal static string Nickname => Linked ? account.nickname : null;
 
         static readonly Regex UserCode = new Regex("^[A-Z]{4}-[A-Z]{4}$");
+        static readonly Regex ReplayQuery = new Regex(@"[?&]r=([A-Za-z0-9]{10})(?:$|[^A-Za-z0-9])");
+        static readonly Regex ReplayPath = new Regex(@"/replays/([A-Za-z0-9]{10})(?:$|[^A-Za-z0-9])");
+        static readonly Regex ReplayBare = new Regex(@"^([A-Za-z0-9]{10})$");
+        static Dictionary<string, string> sharedCache;
+        static readonly Dictionary<string, (long len, long ticks, string hash)> hashMemo = new Dictionary<string, (long, long, string)>();
+
+        internal static string GetClipboard()
+        {
+#if DEVTOOLS
+            if (DevCommands.Enabled)
+            {
+                var p = Path.Combine(BepInEx.Paths.ConfigPath, "optcgtrainer-clipboard.txt");
+                try { return File.Exists(p) ? File.ReadAllText(p) : ""; }
+                catch { return ""; }
+            }
+#endif
+            return GUIUtility.systemCopyBuffer ?? "";
+        }
+
+        internal static void SetClipboard(string text)
+        {
+#if DEVTOOLS
+            if (DevCommands.Enabled)
+            {
+                var p = Path.Combine(BepInEx.Paths.ConfigPath, "optcgtrainer-clipboard.txt");
+                try { File.WriteAllText(p, text ?? ""); } catch { }
+                return;
+            }
+#endif
+            GUIUtility.systemCopyBuffer = text ?? "";
+        }
+
+        internal static bool ParseReplayId(string raw, out string id)
+        {
+            id = null;
+            if (string.IsNullOrWhiteSpace(raw)) return false;
+            var s = raw.Trim();
+            var m = ReplayQuery.Match(s);
+            if (!m.Success) m = ReplayPath.Match(s);
+            if (!m.Success) m = ReplayBare.Match(s);
+            if (!m.Success) return false;
+            id = m.Groups[1].Value;
+            return true;
+        }
+
+        static string SharedLinksPath => Path.Combine(Store.Root, "shared-links.json");
+
+        static Dictionary<string, string> SharedCache() =>
+            sharedCache ??= Store.Load<Dictionary<string, string>>(SharedLinksPath) ?? new Dictionary<string, string>();
+
+        internal static string FileHash(string path)
+        {
+            if (string.IsNullOrEmpty(path) || !File.Exists(path)) return null;
+            try
+            {
+                var info = new FileInfo(path);
+                if (hashMemo.TryGetValue(path, out var m) && m.len == info.Length && m.ticks == info.LastWriteTimeUtc.Ticks)
+                    return m.hash;
+                using var sha = SHA256.Create();
+                using var stream = File.OpenRead(path);
+                var bytes = sha.ComputeHash(stream);
+                var sb = new StringBuilder(bytes.Length * 2);
+                for (int i = 0; i < bytes.Length; i++) sb.Append(bytes[i].ToString("x2", CultureInfo.InvariantCulture));
+                var hash = sb.ToString();
+                hashMemo[path] = (info.Length, info.LastWriteTimeUtc.Ticks, hash);
+                return hash;
+            }
+            catch { return null; }
+        }
+
+        internal static bool HasSharedUrl(string path, out string url)
+        {
+            url = null;
+            var hash = FileHash(path);
+            return hash != null && SharedCache().TryGetValue(hash, out url) && !string.IsNullOrEmpty(url);
+        }
+
+        internal static void RememberShared(string path, string url)
+        {
+            if (string.IsNullOrEmpty(url)) return;
+            var hash = FileHash(path);
+            if (hash == null) return;
+            var cache = SharedCache();
+            cache[hash] = url;
+            try { Directory.CreateDirectory(Store.Root); Store.Save(SharedLinksPath, cache); }
+            catch (Exception e) { Plugin.Log.LogWarning("salvataggio shared-links: " + e.Message); }
+        }
+
+        internal static void SetTestAccount(string siteUrl, string token, string nickname)
+        {
+            Plugin.SiteUrlOverride = string.IsNullOrWhiteSpace(siteUrl) ? null : siteUrl.Trim().TrimEnd('/');
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                account = null;
+                return;
+            }
+            account = new AccountFile
+            {
+                site = Site,
+                token = token.Trim(),
+                nickname = string.IsNullOrWhiteSpace(nickname) ? "Tester" : nickname.Trim(),
+                linkedAt = DateTime.UtcNow.ToString("o"),
+            };
+            LastError = null;
+            Plugin.Log.LogInfo($"[prova] account impostato: {account.nickname} su {account.site}");
+        }
+
+        internal static void ShareReplay(string logPath, Action<bool, string, string> done)
+        {
+            Plugin.Instance.StartCoroutine(ShareReplayCoro(logPath, done));
+        }
+
+        static IEnumerator ShareReplayCoro(string logPath, Action<bool, string, string> done)
+        {
+            if (!Linked) { done?.Invoke(false, null, "Link your OPTCG Trainer account first."); yield break; }
+            if (string.IsNullOrEmpty(logPath) || !File.Exists(logPath)) { done?.Invoke(false, null, "Replay file not found."); yield break; }
+            string text;
+            try { text = File.ReadAllText(logPath); }
+            catch (Exception e) { done?.Invoke(false, null, "Could not read replay file: " + e.Message); yield break; }
+
+            var fileName = Path.GetFileName(logPath);
+            var up = new Request("POST", "/api/replays", Encoding.UTF8.GetBytes(text), "text/plain; charset=utf-8");
+            up.Header("X-File-Name", Uri.EscapeDataString(fileName ?? "sim.log"));
+            var played = PlayedAt(fileName);
+            if (played != null) up.Header("X-Played-At", played);
+            yield return up.Send();
+
+            if (up.Status == 401) { Unlinked(); done?.Invoke(false, null, LastError); yield break; }
+            var replayId = up.Ok ? (string)up.Body["replay"]?["id"] : null;
+            if (string.IsNullOrEmpty(replayId))
+            {
+                var msg = up.Ok ? "Unexpected answer from OPTCG Trainer." : Temporary(up.Status) ? Unreachable(up) : "Upload failed: " + up.Problem;
+                Plugin.Log.LogWarning($"condivisione upload {fileName}: {up.Status} {up.Problem}");
+                done?.Invoke(false, null, msg);
+                yield break;
+            }
+
+            try
+            {
+                GameLog.ParseName(fileName, out var matchId, out _);
+                foreach (var m in Store.AllMatches())
+                {
+                    bool same = (!string.IsNullOrEmpty(matchId) && m.id == matchId)
+                        || string.Equals(m.logName, fileName, StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(m.backup, logPath, StringComparison.OrdinalIgnoreCase);
+                    if (!same) continue;
+                    m.replayId = replayId;
+                    m.site = Site;
+                    Store.SaveMatch(m);
+                }
+            }
+            catch (Exception e) { Plugin.Log.LogWarning("aggiornamento match condiviso: " + e.Message); }
+
+            var pub = new Request("PUT", "/api/replays/" + Uri.EscapeDataString(replayId) + "/public", Json(new { @public = true }));
+            yield return pub.Send();
+            if (pub.Status == 401) { Unlinked(); done?.Invoke(false, null, LastError); yield break; }
+            if (!pub.Ok)
+            {
+                var msg = Temporary(pub.Status) ? Unreachable(pub) : "Could not enable public link: " + pub.Problem;
+                Plugin.Log.LogWarning($"condivisione public {replayId}: {pub.Status} {pub.Problem}");
+                done?.Invoke(false, null, msg);
+                yield break;
+            }
+
+            var url = (string)pub.Body["url"];
+            if (string.IsNullOrEmpty(url)) url = Site + "/?r=" + Uri.EscapeDataString(replayId);
+            RememberShared(logPath, url);
+            SetClipboard(url);
+            Plugin.Log.LogInfo($"replay condiviso: {fileName} -> {url}");
+            done?.Invoke(true, url, "Link copied: " + url);
+        }
+
+        internal static void DownloadReplay(string linkOrId, Action<bool, string, string> done)
+        {
+            Plugin.Instance.StartCoroutine(DownloadReplayCoro(linkOrId, done));
+        }
+
+        static IEnumerator DownloadReplayCoro(string linkOrId, Action<bool, string, string> done)
+        {
+            if (!ParseReplayId(linkOrId, out var replayId))
+            {
+                done?.Invoke(false, null, "Paste a valid OPTCG Trainer link (?r=...) or 10-character code.");
+                yield break;
+            }
+            var apiPath = "/api/replays/" + Uri.EscapeDataString(replayId);
+            var req = new Request("GET", apiPath, null, sendAuth: Linked);
+            yield return req.Send();
+            if (req.Status == 401 && Linked)
+            {
+                req = new Request("GET", apiPath, null, sendAuth: false);
+                yield return req.Send();
+            }
+            if (!req.Ok)
+            {
+                var msg = req.Status == 404 ? "Replay not found or not public (" + replayId + ")."
+                    : Temporary(req.Status) ? Unreachable(req)
+                    : "Download failed: " + req.Problem;
+                Plugin.Log.LogWarning($"download replay {replayId}: {req.Status} {req.Problem}");
+                done?.Invoke(false, null, msg);
+                yield break;
+            }
+            var logText = (string)req.Body["log"];
+            if (string.IsNullOrEmpty(logText))
+            {
+                done?.Invoke(false, null, "Replay log is empty.");
+                yield break;
+            }
+
+            DateTime ts = DateTime.UtcNow;
+            var playedTok = req.Body["replay"]?["playedAt"];
+            if (playedTok != null)
+            {
+                if (playedTok.Type == JTokenType.Date) ts = playedTok.Value<DateTime>().ToUniversalTime();
+                else if (playedTok.Type == JTokenType.Integer && Coach.FromMs(playedTok.Value<long>()) is DateTime fromMs) ts = fromMs;
+                else if (playedTok.Type == JTokenType.String)
+                {
+                    var s = (string)playedTok;
+                    if (long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var ms) && Coach.FromMs(ms) is DateTime fromStrMs) ts = fromStrMs;
+                    else if (Coach.Utc(s) is DateTime fromIso) ts = fromIso;
+                }
+            }
+
+            string savedPath;
+            try
+            {
+                var dir = Path.Combine(Application.persistentDataPath, "SharedReplays");
+                Directory.CreateDirectory(dir);
+                var name = ts.ToUniversalTime().ToString("yyyy-MM-dd'T'HH.mm.ss", CultureInfo.InvariantCulture) + ".0000000-" + replayId + ".log";
+                savedPath = Path.Combine(dir, name);
+                File.WriteAllText(savedPath, logText, Encoding.UTF8);
+            }
+            catch (Exception e)
+            {
+                done?.Invoke(false, null, "Could not save replay: " + e.Message);
+                yield break;
+            }
+
+            RememberShared(savedPath, Site + "/?r=" + Uri.EscapeDataString(replayId));
+            Plugin.Log.LogInfo($"replay condiviso scaricato: {replayId} -> {savedPath}");
+            done?.Invoke(true, savedPath, "Loaded shared replay " + replayId);
+        }
 
         internal static void Init()
         {
@@ -262,7 +506,7 @@ namespace OPTCGTrainer
             internal string Problem;
             internal bool Ok => Status >= 200 && Status < 300;
 
-            internal Request(string method, string path, byte[] body, string type = "application/json")
+            internal Request(string method, string path, byte[] body, string type = "application/json", bool sendAuth = true)
             {
                 // niente rinvii: il token va solo all'indirizzo delle impostazioni
                 web = new UnityWebRequest(Site + path, method) { downloadHandler = new DownloadHandlerBuffer(), timeout = 30, redirectLimit = 0 };
@@ -272,7 +516,7 @@ namespace OPTCGTrainer
                     web.SetRequestHeader("Content-Type", type);
                 }
                 // il token solo dove serve: le strade del collegamento non lo vogliono
-                if (Linked && !path.StartsWith("/api/device/")) web.SetRequestHeader("Authorization", "Bearer " + account.token);
+                if (sendAuth && Linked && !path.StartsWith("/api/device/")) web.SetRequestHeader("Authorization", "Bearer " + account.token);
             }
 
             internal void Header(string name, string value) => web.SetRequestHeader(name, value);

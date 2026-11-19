@@ -23,12 +23,14 @@ using System.Text.RegularExpressions;
 namespace OPTCGTrainer
 {
     /// Il riassunto di un log del sim: una partita, o un pezzo (dopo "Restart this turn" il sim apre un log nuovo).
-    /// Solo dati del gioco: i nomi dei giocatori non si leggono e non si salvano.
+    /// Solo dati del gioco: i nomi dei giocatori si leggono (per sapere chi fa cosa) ma non si salvano.
     class GameSummary
     {
         /// Sale quando il riassunto impara qualcosa di nuovo: quelli più vecchi si rileggono dal log (se c'è ancora).
         /// 3 (0.5.0): l'avversario che esce a metà di una partita multiplayer ("[Opponent] Quits!") è una vittoria.
-        internal const int Current = 3;
+        /// 4 (0.5.2): i log con i nomi veri dei giocatori ("[Tizio#1234] Draw 1 Card", Hide Player Names spenta, il valore di
+        /// base del sim) si leggono come quelli con You e Opponent: prima avevano 0 turni e non contavano.
+        internal const int Current = 4;
         public int v;                // la versione del riassunto
         public string id;            // l'id del log: il guid nel nome del file (= ReplayEvidenceJournal.Id)
         public string logName;
@@ -168,7 +170,6 @@ namespace OPTCGTrainer
     {
         // 2026-11-07T11.48.39.8988538-<id>.log (o .partial.log): ora UTC, come li salva il sim in CombatLogs\AutoSaved
         static readonly Regex FileName = new Regex(@"^(\d{4}-\d{2}-\d{2}T\d{2}\.\d{2}\.\d{2})(\.\d{1,7})?-([0-9A-Za-z]+)\.(partial\.)?log$");
-        static readonly Regex Actor = new Regex(@"^\[(You|Opponent)\] (.*)$");
         static readonly Regex DrawCard = new Regex(@"^Draw \d+ Card$");
         static readonly Regex DrawDon = new Regex(@"^Draw \d+ Don$");
         static readonly Regex Link = new Regex("<link=\"([^\"]+)\">");
@@ -185,6 +186,37 @@ namespace OPTCGTrainer
             return true;
         }
 
+        /// Un nome di giocatore come si confronta: senza lo spazio a larghezza zero che il sim mette prima di "#1234" (e
+        /// simili), con "|" come lo scrive la riga PLY ("/"), senza spazi ai lati. Come stripName del sito.
+        static string PlayerName(string s) =>
+            s.Replace("\u200B", "").Replace("\u200C", "").Replace("\u200D", "").Replace("\uFEFF", "")
+                .Replace('|', '/').Replace('\r', ' ').Replace('\n', ' ').Trim();
+
+        /// Chi scrive una riga "[attore] testo": 1 io, 2 l'avversario, 0 nessuno (non è una riga di un giocatore, o "[] …"),
+        /// -1 un nome che non si sa di chi è. Con l'opzione del sim Hide Player Names l'attore è You o Opponent; spenta (il
+        /// valore di base) è il nome vero, lo stesso delle righe PLY (1 = io; maiuscole e minuscole non contano).
+        /// Un nome sconosciuto non si indovina mai (revisione thr_cxpxi8gff9): se fossi io (la mia PLY vuota, "You" tradotto)
+        /// diventerei l'avversario, e un mio Quits! sarebbe una vittoria finta. Prima della riga HDR è la lobby di prima.
+        /// Un nome può contenere "] ": si prova ogni "] " della riga finché l'attore non è un nome conosciuto.
+        static int Who(string line, HashSet<string> me, HashSet<string> them, out string body)
+        {
+            body = null;
+            if (line.Length < 3 || line[0] != '[') return 0;
+            bool any = false;
+            for (int i = line.IndexOf("] ", 1, StringComparison.Ordinal); i > 0; i = line.IndexOf("] ", i + 1, StringComparison.Ordinal))
+            {
+                var who = PlayerName(line.Substring(1, i - 1));
+                if (!any)
+                {
+                    any = true;
+                    if (who == "") return 0;
+                }
+                int p = who == "You" ? 1 : who == "Opponent" ? 2 : me.Contains(who) ? 1 : them.Contains(who) ? 2 : 0;
+                if (p != 0) { body = line.Substring(i + 2); return p; }
+            }
+            return any ? -1 : 0;
+        }
+
         internal static GameSummary Summarize(string fileName, IEnumerable<string> lines)
         {
             var s = new GameSummary { v = GameSummary.Current, logName = fileName, result = "o" };
@@ -193,24 +225,40 @@ namespace OPTCGTrainer
                 s.id = id;
                 s.startedAt = Coach.Iso(start);
             }
-            bool header = false, version = false, names = false, turnEnded = false, cut = false, cutFirst = false;
+            bool header = false, version = false, names = false, turnEnded = false, cut = false, cutFirst = false, stranger = false;
             int active = 0, firstTurn = 0, chose = 0, quitBy = 0;
             string end = null, endReason = null, conceded = null;
             var leaderNames = new Dictionary<string, string>();
-            foreach (var line in lines)
+            // i nomi dei due giocatori, dalle righe PLY: si leggono prima di tutto perché le prime righe di ognuno ("Leader is",
+            // le pescate) arrivano prima della sua PLY piena (vedi read-steps.js del sito)
+            var all = lines as IList<string> ?? lines.ToList();
+            var me = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var them = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var line in all)
+            {
+                if (!line.StartsWith("RZ1|PLY|", StringComparison.Ordinal)) continue;
+                var f = line.Split('|');
+                if (f.Length < 5) continue;
+                var who = PlayerName(f[3]);
+                if (who == "") continue;
+                if (f[2] == "1") me.Add(who);
+                else if (f[2] == "2") them.Add(who);
+            }
+            them.ExceptWith(me); // lo stesso nome tutti e due: sono io (non succede, i nomi hanno il #numero)
+            foreach (var line in all)
             {
                 if (line.StartsWith("RZ1|", StringComparison.Ordinal))
                 {
                     var f = line.Split('|');
                     if (f.Length < 2) continue;
-                    // la partita comincia qui: un "[Opponent] Quits!" (o una disconnessione) scritto prima è dell'avversario
-                    // della lobby di prima (5 log veri di Leo su 134 cominciano così), non di questa partita
-                    if (f[1] == "HDR") { header = true; quitBy = 0; cut = false; cutFirst = false; }
+                    // la partita comincia qui: un "[Opponent] Quits!" (o un Concedes!, una disconnessione, un nome che non si
+                    // sa di chi è) scritto prima è della lobby di prima (5 log veri di Leo su 134 cominciano così), non di questa partita
+                    if (f[1] == "HDR") { header = true; quitBy = 0; conceded = null; cut = false; cutFirst = false; stranger = false; }
                     else if (f[1] == "META" && f.Length > 3) int.TryParse(f[3], NumberStyles.Integer, CultureInfo.InvariantCulture, out s.ladderMatch);
                     else if (f[1] == "PLY" && f.Length > 4)
                     {
                         // RZ1|PLY|n|nome|leader: 1 sono sempre io. Le righe si ripetono (le prime vuote): vale l'ultima piena
-                        if (f[3].Replace("​", "").Trim() != "") names = true;
+                        if (PlayerName(f[3]) != "") names = true;
                         var leader = f[4].Trim();
                         if (leader != "" && f[2] == "1") s.myLeader = leader;
                         else if (leader != "" && f[2] == "2") s.oppLeader = leader;
@@ -225,14 +273,14 @@ namespace OPTCGTrainer
                 }
                 // una partita nuova comincia con la versione; il log di un turno rifatto no (LoadTurnState(newGame: false))
                 if (line.StartsWith("Version is", StringComparison.Ordinal)) { version = true; continue; }
-                var m = Actor.Match(line);
-                if (!m.Success)
+                int p = Who(line, me, them, out var body);
+                if (p <= 0)
                 {
+                    if (p < 0) stranger = true;
                     if (line.Contains("Disconnected")) cut = true;
                     continue;
                 }
-                int p = m.Groups[1].Value == "You" ? 1 : 2;
-                var body = m.Groups[2].Value.Trim();
+                body = body.Trim();
                 if (body.StartsWith("Leader is ", StringComparison.Ordinal))
                 {
                     var link = Link.Match(body);
@@ -262,6 +310,16 @@ namespace OPTCGTrainer
             s.continuation = header && !version;
             s.noNames = !names;
             s.first = firstTurn != 0 ? firstTurn : chose;
+            if (stranger)
+            {
+                // un giocatore di questa partita che non si sa chi è: turni, primo/secondo ed esito dalle righe dei giocatori
+                // sarebbero a metà o scambiati. Meglio una partita che si vede non contare (0 turni) di una vittoria finta;
+                // la riga END (sigillata dal sim) vale lo stesso. Nei log veri non succede (revisione thr_cxpxi8gff9)
+                s.turns = 0;
+                s.first = 0;
+                conceded = null;
+                quitBy = 0;
+            }
             if (s.myLeader != null && leaderNames.TryGetValue(s.myLeader, out var mine)) s.myLeaderName = mine;
             if (s.oppLeader != null && leaderNames.TryGetValue(s.oppLeader, out var theirs)) s.oppLeaderName = theirs;
             // l'esito: la riga END (sigillata dal sim) vale più di tutto; senza: concede sì, disconnessione e uscita mia incerte.

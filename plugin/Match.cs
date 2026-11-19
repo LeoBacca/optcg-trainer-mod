@@ -55,6 +55,7 @@ namespace OPTCGTrainer
         /// Il sim azzera il turno prima di buttare via il log, quindi va ricordato prima.
         internal static void Track(GameplayLogicScript game)
         {
+            if (ReplayRoom.Active) return; // la Replay Room non è una partita (ReplayRoom.cs)
             if (game.gsv_CurrentGame == null || Journal(game) == null) return;
             var m = ForGame(game);
             if (m == null || m.Finished) return;
@@ -136,6 +137,7 @@ namespace OPTCGTrainer
         // il sim ha appena salvato il log: se la partita è chiusa (riga RZ1|END scritta) è finita
         internal static void AfterSave(GameplayLogicScript game)
         {
+            if (ReplayRoom.Active) return;
             var journal = Journal(game);
             // il file diventa .log quando il sim lo chiude; se la rinomina non riesce resta .partial.log, ma la partita è finita lo stesso
             if (journal != null && SealedRef(game)) Register(game, journal, "finita");
@@ -145,6 +147,7 @@ namespace OPTCGTrainer
         /// (il sito lo accetta, come quelli della cartella AutoSaved), ma solo se vale la pena (vedi in cima).
         internal static void Abandon(GameplayLogicScript game)
         {
+            if (ReplayRoom.Active) return;
             var journal = Journal(game);
             if (journal == null) return;
             if (SealedRef(game)) { AfterSave(game); return; }
@@ -169,6 +172,7 @@ namespace OPTCGTrainer
 
         internal static void OpponentGone(GameplayLogicScript game)
         {
+            if (ReplayRoom.Active) return;
             var journal = Journal(game);
             if (journal == null || SealedRef(game)) return;
             var m = ForGame(game);
@@ -260,6 +264,7 @@ namespace OPTCGTrainer
         {
             try
             {
+                if (ReplayRoom.Active) return; // la Replay Room smonta il suo tavolo: non c'era nessuna partita
                 Match.Abandon(__instance);
                 Match.OnReset();
             }

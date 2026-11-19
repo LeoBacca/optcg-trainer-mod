@@ -222,8 +222,10 @@ namespace OPTCGTrainer
 
         /// Il riassunto di un log sul disco, letto in condivisione (il sim può averlo ancora aperto): l'inizio dal nome
         /// (o dalla data del file, se quella del nome è assurda), la fine (data del file, se non la si sa meglio), il giorno
-        /// del coach nel fuso di adesso, la dimensione.
-        internal static GameSummary Read(string path, TimeZoneInfo tz, DateTime? endUtc = null)
+        /// del coach nel fuso di adesso, la dimensione. day: il giorno del riassunto di prima, quando un log già letto si rilegge
+        /// (una versione nuova del riassunto, un log importato cambiato): resta quello, anche se intanto è cambiato il fuso del
+        /// PC (in viaggio per un regionale le partite vicine alle 4 non devono cambiare giorno). null = si calcola adesso.
+        internal static GameSummary Read(string path, TimeZoneInfo tz, DateTime? endUtc = null, string day = null)
         {
             var info = new FileInfo(path);
             GameSummary s;
@@ -235,10 +237,15 @@ namespace OPTCGTrainer
             if (end < start) end = start;
             s.startedAt = Coach.Iso(start);
             s.endedAt = Coach.Iso(end);
-            s.day = Coach.DayKey(start, tz);
+            s.day = Coach.Day(day) != null ? day : Coach.DayKey(start, tz);
             s.size = info.Length;
             return s;
         }
+
+        /// Il giorno già fissato per un log di AutoSaved importato prima (null se non c'è): per Read, quando lo si rilegge.
+        internal static string KnownDay(IDictionary<string, GameSummary> imported, string path) =>
+            GameLog.ParseName(Path.GetFileName(path), out var id, out _) && imported != null && imported.TryGetValue(id, out var old)
+                ? old?.day : null;
 
         static IEnumerable<string> Lines(StreamReader reader)
         {

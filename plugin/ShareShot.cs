@@ -126,6 +126,7 @@ namespace OPTCGTrainer
     static class ShareShot
     {
         internal static GameObject Button;
+        internal static string LastSavedPath { get; private set; }
         static TextMeshProUGUI toast;
         static float toastUntil;
         static bool busy;
@@ -184,6 +185,7 @@ namespace OPTCGTrainer
 
         static void Toast(string text)
         {
+            if (toast == null) return;
             toast.text = text;
             toast.gameObject.SetActive(true);
             toastUntil = Time.realtimeSinceStartup + 2.5f;
@@ -221,7 +223,7 @@ namespace OPTCGTrainer
 
         // ---- lo scatto ----
 
-        static void Shoot(GameplayLogicScript game)
+        internal static void Shoot(GameplayLogicScript game)
         {
             if (!busy) Plugin.Instance.StartCoroutine(Capture(game));
         }
@@ -230,20 +232,39 @@ namespace OPTCGTrainer
         {
             busy = true;
             Hiding = true;
+            bool hiddenForShot = false;
             Texture2D board = null;
             try
             {
+                if (ReplayRoom.Active)
+                {
+                    ReplayBar.SetHiddenForShot(true);
+                    ReplayStudy.SetHiddenForShot(true);
+                    hiddenForShot = true;
+                }
                 yield return null;                     // un fotogramma senza i pulsanti della mod
                 yield return new WaitForEndOfFrame();
                 board = ScreenCapture.CaptureScreenshotAsTexture();
                 Hiding = false;
+                if (hiddenForShot)
+                {
+                    ReplayBar.SetHiddenForShot(false);
+                    ReplayStudy.SetHiddenForShot(false);
+                    hiddenForShot = false;
+                }
                 var path = Save(Compose(game, board));
-                Toast("Saved in Pictures › OPTCG Trainer");
+                if (ReplayRoom.Active) ReplayStudy.ShowBanner("Saved in Pictures > OPTCG Trainer", 4f);
+                else Toast("Saved in Pictures › OPTCG Trainer");
                 Plugin.Log.LogInfo("foto salvata: " + path);
             }
             finally
             {
                 Hiding = false;
+                if (hiddenForShot)
+                {
+                    ReplayBar.SetHiddenForShot(false);
+                    ReplayStudy.SetHiddenForShot(false);
+                }
                 busy = false;
                 if (board != null) UnityEngine.Object.Destroy(board);
             }
@@ -255,6 +276,7 @@ namespace OPTCGTrainer
             Directory.CreateDirectory(dir);
             var path = Path.Combine(dir, $"OPTCG {DateTime.Now:yyyy-MM-dd HH.mm.ss}.png");
             File.WriteAllBytes(path, png);
+            LastSavedPath = path;
             return path;
         }
 
@@ -266,12 +288,27 @@ namespace OPTCGTrainer
         {
             var players = game.Lps_Players;
             PlayerState me = players[0], opp = players[1];
+            List<string> bottomIds, knownHandIds;
+            if (ReplayRoom.Active && ReplayRoom.Board != null)
+            {
+                bottomIds = ReplayRoom.Board.BottomGroups(1).SelectMany(g => g)
+                    .Where(pc => !pc.bottomCovered && !string.IsNullOrEmpty(pc.card))
+                    .Select(pc => pc.card).ToList();
+                knownHandIds = ReplayRoom.Board.Zones[2][1].Select(i => ReplayRoom.Board.Pieces[i])
+                    .Where(pc => pc.seen && !string.IsNullOrEmpty(pc.card))
+                    .Select(pc => pc.card).ToList();
+            }
+            else
+            {
+                bottomIds = Knowledge.KnownBottom(me.Lgo_MyDeck).Select(Knowledge.Id).Where(x => x != null).ToList();
+                knownHandIds = Knowledge.OppKnownHand(opp).Select(Knowledge.Id).Where(x => x != null).ToList();
+            }
             var groups = new List<(string title, List<string> ids)>
             {
                 ("YOUR TRASH", me.Lgo_MyTrash.Select(Knowledge.Id).Where(x => x != null).ToList()),
                 ("OPPONENT'S TRASH", opp.Lgo_MyTrash.Select(Knowledge.Id).Where(x => x != null).ToList()),
-                ("YOUR DECK BOTTOM", Knowledge.KnownBottom(me.Lgo_MyDeck).Select(Knowledge.Id).Where(x => x != null).ToList()),
-                ("KNOWN IN OPPONENT'S HAND", Knowledge.OppKnownHand(opp).Select(Knowledge.Id).Where(x => x != null).ToList()),
+                ("YOUR DECK BOTTOM", bottomIds),
+                ("KNOWN IN OPPONENT'S HAND", knownHandIds),
             };
             // una carta sola per ogni carta diversa, con quante copie (nell'ordine in cui sono arrivate)
             var stacks = groups.Select(g => g.ids.GroupBy(x => x).Select(x => (id: x.Key, n: x.Count())).ToList()).ToList();
@@ -421,7 +458,7 @@ namespace OPTCGTrainer
             return x1 - x0 < w * 0.3f ? new Rect(0, 0, w, h) : new Rect(x0, 0, x1 - x0, h); // se qualcosa non torna, lo schermo intero
         }
 
-        static bool TryScreenRect(GameObject go, out Rect r)
+        internal static bool TryScreenRect(GameObject go, out Rect r)
         {
             r = default;
             var corners = new Vector3[4];

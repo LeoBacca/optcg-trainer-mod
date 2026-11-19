@@ -95,7 +95,7 @@ namespace OPTCGTrainer
             {
                 if (!GameLog.ParseName(name, out var id, out _) || known.Contains(id)) continue;
                 if (Data.imported.TryGetValue(id, out var old) && old != null && old.v >= GameSummary.Current && old.logName == name) continue;
-                var game = CoachFiles.Read(Path.Combine(AutoSaved, name), TimeZoneInfo.Local);
+                var game = CoachFiles.Read(Path.Combine(AutoSaved, name), TimeZoneInfo.Local, day: old?.day); // il giorno di prima resta
                 game.imported = true;
                 Data.imported[id] = CoachFiles.Slim(game);
                 added++;
@@ -125,7 +125,7 @@ namespace OPTCGTrainer
             var matches = Store.AllMatches();
             var known = new HashSet<string>(matches.Select(m => m.id));
             var redo = matches.Where(m => m.Finished && (m.game == null || m.game.v < GameSummary.Current))
-                .Select(m => (match: m, backup: m.backup, logName: m.logName, finishedAt: m.finishedAt)).ToList();
+                .Select(m => (match: m, backup: m.backup, logName: m.logName, finishedAt: m.finishedAt, day: m.game?.day)).ToList();
             var playing = Match.Current != null && !Match.Current.Finished ? Match.Current.id : null;
             var imported = new Dictionary<string, GameSummary>(Data.imported);
             var keep = CoachFiles.KeepFrom(DateTime.UtcNow, Data.active?.start);
@@ -134,7 +134,7 @@ namespace OPTCGTrainer
             job = Task.Run(() =>
             {
                 var done = new List<Done>();
-                foreach (var (m, backup, logName, finishedAt) in redo)
+                foreach (var (m, backup, logName, finishedAt, day) in redo)
                 {
                     try
                     {
@@ -146,7 +146,8 @@ namespace OPTCGTrainer
                         var original = CoachFiles.SourceFor(null, dir, logName);
                         var end = File.GetLastWriteTimeUtc(original ?? source);
                         if (original == null && Coach.Utc(finishedAt) is DateTime finished && finished < end) end = finished;
-                        done.Add(new Done { match = m, game = CoachFiles.Read(source, tz, end) });
+                        // il giorno del riassunto di prima resta: se intanto è cambiato il fuso, la partita non cambia giorno
+                        done.Add(new Done { match = m, game = CoachFiles.Read(source, tz, end, day) });
                     }
                     catch (Exception e) { done.Add(new Done { name = logName, error = e.Message }); }
                 }
@@ -154,7 +155,7 @@ namespace OPTCGTrainer
                 {
                     try
                     {
-                        var game = CoachFiles.Read(path, tz);
+                        var game = CoachFiles.Read(path, tz, day: CoachFiles.KnownDay(imported, path)); // il giorno di prima resta
                         game.imported = true;
                         done.Add(new Done { id = game.id, game = CoachFiles.Slim(game) });
                     }

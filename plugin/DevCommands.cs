@@ -2,6 +2,7 @@
 // È acceso SOLO se esiste il file BepInEx\config\optcgtrainer.dev; per chi installa la mod non esiste.
 // Si scrivono comandi in BepInEx\config\optcgtrainer-cmd.txt (uno per riga), le risposte arrivano in optcgtrainer-out.txt:
 //   scene                 la scena aperta
+//   drag x1 y1 x2 y2      trascina nella UI del laboratorio usando gli eventi Unity (coordinate schermo, origine in alto)
 //   buttons               i pulsanti visibili: scritta, posizione sullo schermo, nome dell'oggetto
 //   click <scritta>       preme il pulsante con quella scritta (uguale, se no che la contiene)
 //   fields                i GameObject pubblici di GameplayLogicScript: acceso o spento, dove stanno sullo schermo
@@ -40,6 +41,12 @@
 //                         controllo degli aggiornamenti e poi lancia lo script come UpdateCheckScript lancia DoPatch.ps1
 //                         (powershell, stessi argomenti, aspettando che finisca: il sim resta fermo). keepenv = rimette
 //                         DOORSTOP_DISABLE e DOORSTOP_INITIALIZED, cioè come una mod senza la correzione. La risposta arriva prima del lancio.
+//   replay <log>          apre la Replay Room su quel log (dal menu principale): la partita rifatta nel sim (ReplayRoom.cs)
+//   replay play|pause|step|back|turn <n>|turn next|turn prev|speed <0.5|1|2|4|max>|hand|goto <battuta>|find <testo>|status|stop
+//                         guidarla; tasti: spazio play/pausa, frecce sinistra/destra un passo, su/giù un turno, T ordina il trash
+//   replay test <cartella>  tutti i log della cartella uno dopo l'altro a tutta velocità, con i controlli; "replay test" il risultato
+//   replay rec <cartella> [fps] [uno ogni n] [quanti] | replay rec | replay rec stop   salva i fotogrammi (jpg) per un video,
+//                         a tempo di gioco fisso (si ferma da solo dopo "quanti", e mette in pausa); "replay rec" a che punto è
 #if DEVTOOLS
 using System;
 using System.Globalization;
@@ -155,6 +162,7 @@ namespace OPTCGTrainer
                     CoachUi.Open(arg);
                     return CoachUi.IsOpen ? "pagina aperta: " + arg : "pagina non aperta (il menu non è pronto?)";
                 case "tap": return Tap(arg, false);
+                case "drag": return Tap(arg, false, drag: true);
                 case "mats": return "materiali in memoria: " + Resources.FindObjectsOfTypeAll<Material>().Length;
                 case "fonts":
                     return string.Join("\n", Resources.FindObjectsOfTypeAll<TMP_FontAsset>().Select(f => $"{f.name} · bold={(f.fontWeightTable != null && f.fontWeightTable.Length > 7 && f.fontWeightTable[7].regularTypeface != null ? f.fontWeightTable[7].regularTypeface.name : "-")} boldSpacing={f.boldSpacing}"));
@@ -168,6 +176,8 @@ namespace OPTCGTrainer
                     var chosen = hand[int.Parse(ci[1])];
                     typeof(GameplayLogicScript).GetMethod("HandleMouseClickCard", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(gk, new object[] { chosen });
                     return "clic su " + Knowledge.Id(chosen);
+                case "replay": return ReplayRoom.Command(arg);
+                case "account": return AccountCmd(arg);
                 case "env":
                     return string.Join("\n", Environment.GetEnvironmentVariables().Keys.Cast<string>().Where(k => k.StartsWith("DOORSTOP", StringComparison.OrdinalIgnoreCase))
                         .OrderBy(k => k).Select(k => k + "=" + Environment.GetEnvironmentVariable(k)).DefaultIfEmpty("nessuna variabile DOORSTOP_*"));
@@ -340,7 +350,7 @@ namespace OPTCGTrainer
         static GameObject hovered;
 
         // come il mouse: l'oggetto più in alto sotto il punto, e il clic (o l'entrata) a chi lo prenderebbe
-        static string Tap(string arg, bool hover)
+        static string Tap(string arg, bool hover, bool drag = false)
         {
             var events = UnityEngine.EventSystems.EventSystem.current;
             if (events == null) return "nessun EventSystem";
@@ -355,6 +365,27 @@ namespace OPTCGTrainer
             var top = hits[0].gameObject;
             data.pointerCurrentRaycast = hits[0];
             data.pointerPress = top;
+            if (drag)
+            {
+                if (xy.Length != 4) return "drag x1 y1 x2 y2";
+                var target = UnityEngine.EventSystems.ExecuteEvents.GetEventHandler<UnityEngine.EventSystems.IDragHandler>(top);
+                if (target == null) return "no drag handler";
+                data.pointerPressRaycast = hits[0];
+                data.pressPosition = data.position;
+                data.pointerDrag = target;
+                var end = new Vector2(float.Parse(xy[2], CultureInfo.InvariantCulture), Screen.height - float.Parse(xy[3], CultureInfo.InvariantCulture));
+                UnityEngine.EventSystems.ExecuteEvents.ExecuteHierarchy(top, data, UnityEngine.EventSystems.ExecuteEvents.pointerDownHandler);
+                UnityEngine.EventSystems.ExecuteEvents.Execute(target, data, UnityEngine.EventSystems.ExecuteEvents.beginDragHandler);
+                for (int step = 1; step <= 16; step++)
+                {
+                    var next = Vector2.Lerp(data.pressPosition, end, step / 16f);
+                    data.delta = next - data.position; data.position = next;
+                    UnityEngine.EventSystems.ExecuteEvents.Execute(target, data, UnityEngine.EventSystems.ExecuteEvents.dragHandler);
+                }
+                UnityEngine.EventSystems.ExecuteEvents.ExecuteHierarchy(top, data, UnityEngine.EventSystems.ExecuteEvents.pointerUpHandler);
+                UnityEngine.EventSystems.ExecuteEvents.Execute(target, data, UnityEngine.EventSystems.ExecuteEvents.endDragHandler);
+                return "dragged " + target.name;
+            }
             if (hover)
             {
                 hovered = UnityEngine.EventSystems.ExecuteEvents.ExecuteHierarchy(top, data, UnityEngine.EventSystems.ExecuteEvents.pointerEnterHandler);
@@ -598,6 +629,30 @@ namespace OPTCGTrainer
             if (m == null) return "metodo non trovato";
             m.Invoke(game, null);
             return "chiamato " + method;
+        }
+
+        static string AccountCmd(string arg)
+        {
+            int sp = arg.IndexOf(' ');
+            string sub = sp < 0 ? arg : arg.Substring(0, sp), rest = sp < 0 ? "" : arg.Substring(sp + 1).Trim();
+            switch (sub)
+            {
+                case "link":
+                    var parts = rest.Split(new[] { ' ' }, 3, StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length < 2) return "uso: account link <site> <token> [nickname]";
+                    Account.SetTestAccount(parts[0], parts[1], parts.Length > 2 ? parts[2] : null);
+                    return $"{Account.Site} linked={Account.Linked} nick={Account.Nickname ?? "-"}";
+                case "clip":
+                    return Account.GetClipboard();
+                case "setclip":
+                    Account.SetClipboard(rest);
+                    return "clip impostata: " + rest;
+                case "status":
+                case "":
+                    return $"{Account.Site} linked={Account.Linked} nick={Account.Nickname ?? "-"} err={Account.LastError ?? "-"}";
+                default:
+                    return "account: sottocomando sconosciuto";
+            }
         }
     }
 }

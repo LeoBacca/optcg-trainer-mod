@@ -64,8 +64,14 @@ namespace OPTCGTrainer
                 if (game == null) return;
             }
 
-            bool inGame = game.go_ReturnToMainMenu != null && game.go_ReturnToMainMenu.activeInHierarchy;
+            // nella Replay Room il tavolo è aperto ma non è una partita: niente note, Focus mode, foto, fine partita
+            bool inGame = game.go_ReturnToMainMenu != null && game.go_ReturnToMainMenu.activeInHierarchy && !ReplayRoom.Active;
             InGame = inGame;
+            if (ReplayRoom.Active)
+            {
+                foreach (var go in new[] { noteButton, focusButton, endBox, panel, ShareShot.Button }) if (go != null) go.SetActive(false);
+                return;
+            }
             Match.Track(game);
             if (inGame) Knowledge.Track(game);
             if (inGame && noteButton == null) Build();
@@ -177,7 +183,7 @@ namespace OPTCGTrainer
             var box = (RectTransform)endBox.transform;
             box.SetParent(choice.transform.parent, false);
             box.anchorMin = box.anchorMax = box.pivot = new Vector2(0.5f, 0.5f);
-            box.sizeDelta = new Vector2(bw * 1.3f, bh * 2.2f);
+            box.sizeDelta = new Vector2(bw * 1.3f, bh * 3.0f);
             PlaceEnd();
             NoLayout(endBox);
             Frame(endBox, frameTemplate);
@@ -186,15 +192,18 @@ namespace OPTCGTrainer
             // il pulsante grande: copia di una scelta (Keep / Mulligan), con il logo che esce dal bordo
             endButton = Look.CloneButton(choice, "OPTCGTrainerOpen", "", Look.Blue, EndClick);
             endButton.transform.SetParent(box, false);
-            Look.Place((RectTransform)endButton.transform, 0.15f, 0.08f, 0.79f, 0.5f);
+            Look.Place((RectTransform)endButton.transform, 0.15f, 0.05f, 0.79f, 0.34f);
             Look.AddLogoOut(endButton, 1.5f);
 
             var label = endButton.GetComponentInChildren<TMP_Text>(true);
             endStatus = Look.NewText(box, label, "Status", bh * 0.22f, TextAlignmentOptions.Center);
-            Look.Place(endStatus.rectTransform, 0.06f, 0.63f, 0.88f, 0.31f);
+            Look.Place(endStatus.rectTransform, 0.06f, 0.40f, 0.88f, 0.23f);
             endStatus.enableAutoSizing = true;
             endStatus.fontSizeMin = 8;
             endStatus.fontSizeMax = bh * 0.24f;
+            var watch = Look.CloneButton(choice, "WatchFinishedReplay", "Watch replay", Look.Blue, WatchFinishedReplay);
+            watch.transform.SetParent(box, false);
+            Look.Place((RectTransform)watch.transform, 0.15f, 0.66f, 0.79f, 0.28f);
             // la riga dell'Event Coach: una striscia blu notte attaccata sotto il riquadro (sopra il tavolo non si leggerebbe).
             // Dentro, un pannello in pixel "del disegno" (StripW × StripH, rimpicciolito alla misura della striscia): la riga e,
             // sotto, i tre tasti WON · LOST · DON'T COUNT per correggere a mano l'esito (richiesta di Leo, 0.5.0)
@@ -225,7 +234,7 @@ namespace OPTCGTrainer
         }
 
         // lo sfondo dei nostri riquadri: la cornice dei pulsanti di Batsu, tinta di blu notte
-        static void Frame(GameObject go, GameObject template)
+        internal static void Frame(GameObject go, GameObject template)
         {
             var bg = go.GetComponent<Image>();
             var frame = template.GetComponentInChildren<Image>(true);
@@ -234,7 +243,7 @@ namespace OPTCGTrainer
         }
 
         // un canvas tutto suo, nell'ultimo strato e con l'ordine più alto: niente (carte comprese) ci passa sopra
-        static void OnTop(GameObject go)
+        internal static void OnTop(GameObject go)
         {
             var canvas = go.AddComponent<Canvas>();
             canvas.overrideSorting = true;
@@ -539,6 +548,31 @@ namespace OPTCGTrainer
         // un testo che arriva dal sito (il nickname) si mostra così com'è, senza che diventi formattazione
         static string Safe(string text) => "<noparse>" + (text ?? "").Replace("</noparse>", "") + "</noparse>";
 
+        static void WatchFinishedReplay()
+        {
+            var match = Match.ForGame(game);
+            if (ReplayRoom.Active || match == null || !match.Finished) return;
+            string path = match.backup;
+            if (!System.IO.File.Exists(path)) return;
+            openWhenReady = false;
+            game.ReturnToMain();
+            Plugin.Instance.StartCoroutine(OpenAfterLeaving(path));
+        }
+
+        static System.Collections.IEnumerator OpenAfterLeaving(string path)
+        {
+            // Let Unity finish the board cleanup and network shutdown before building a replay board.
+            yield return null;
+            yield return new WaitForEndOfFrame();
+            string result = ReplayRoom.Open(path);
+            if (!ReplayRoom.Active)
+            {
+                Plugin.Log.LogWarning("Watch replay: " + result);
+                ReplayLibrary.Show();
+                ReplayLibrary.SetStatus(result, true);
+            }
+        }
+
         static void EndClick()
         {
             var m = Match.ForGame(game);
@@ -552,7 +586,7 @@ namespace OPTCGTrainer
 
         // ---- i clic e i tasti non devono passare al tavolo ----
 
-        internal static bool PointerOverMod() => Over(Input.mousePosition);
+        internal static bool PointerOverMod() => Over(Input.mousePosition) || ReplayRoom.Over(Input.mousePosition);
 
         /// true se il punto dello schermo (in pixel, dal basso a sinistra come Input.mousePosition) è sopra la mod.
         internal static bool Over(Vector2 p)

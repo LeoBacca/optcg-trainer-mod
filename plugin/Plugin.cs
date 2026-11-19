@@ -25,14 +25,15 @@ namespace OPTCGTrainer
     public class Plugin : BaseUnityPlugin
     {
         public const string Guid = "com.optcgtrainer.mod";
-        public const string Version = "0.5.1";
+        public const string Version = "0.6.0";
         internal static ManualLogSource Log;
         internal static Plugin Instance;
         internal static Sprite LogoSprite;
         internal static ConfigEntry<bool> FocusMode, FocusFullscreen, CheckUpdates, HideMultiplayerExtras, PasteOPBountyCode;
         internal static ConfigEntry<string> WindowBeforeFocus;
         static ConfigEntry<string> site;
-        internal static string SiteUrl => site.Value;
+        internal static string SiteUrlOverride;
+        internal static string SiteUrl => SiteUrlOverride ?? site.Value;
         static int missingHooks;
         GUIStyle warning, updateButton;
         // i pezzi della mod che girano a ogni fotogramma, ognuno per conto suo: se uno va in errore (versione nuova del sim) gli altri continuano
@@ -40,6 +41,7 @@ namespace OPTCGTrainer
         {
             ("menu", MenuButton.FollowSource), ("partita", GameUi.Tick), ("telecomando", DevCommands.Tick), ("multiplayer", CleanMultiplayer.Tick),
             ("incolla", PasteCode.Tick), ("coach", CoachStore.Tick), ("schermate del coach", CoachUi.Tick), ("coach sul sito", CoachSync.Tick),
+            ("replay room", ReplayRoom.Tick),
         };
         readonly string[] lastError = new string[Ticks.Length];
 
@@ -115,6 +117,58 @@ namespace OPTCGTrainer
             ("CardDefinition", "cardType"),
             // la mod torna da sola dopo un aggiornamento del sim (SimUpdate.cs)
             ("UpdateCheckScript", "Start"),
+            // Replay Room (ReplayRoom.cs; la guardia ha il suo elenco, ReplayGuard.Blocked: se ne manca un pezzo non si apre)
+            ("GameplayLogicScript", "MakeMyCards"),
+            ("GameplayLogicScript", "MakeMyLeader"),
+            ("GameplayLogicScript", "MakeMyDon"),
+            ("GameplayLogicScript", "MakeMyEmptyDecks"),
+            ("GameplayLogicScript", "MakePlayersIfNecessary"),
+            ("GameplayLogicScript", "SetupBoardObjects"),
+            ("GameplayLogicScript", "CleanupMatch"),
+            ("GameplayLogicScript", "ReturnToMain"),
+            ("GameplayLogicScript", "AddLocalLogLine"),
+            ("GameplayLogicScript", "RefreshDeployPositions"),
+            ("GameplayLogicScript", "RefreshDonPositions"),
+            ("GameplayLogicScript", "RefreshStagePositions"),
+            ("GameplayLogicScript", "RefreshTrashPositions"),
+            ("GameplayLogicScript", "RefreshLifePositions"),
+            ("GameplayLogicScript", "RefreshLeaderPositions"),
+            ("GameplayLogicScript", "RefreshDeckPositions"),
+            ("GameplayLogicScript", "RefreshHandPositions"),
+            ("GameplayLogicScript", "CleanUpTrashView"),
+            ("GameplayLogicScript", "SortTrash"),
+            ("GameplayLogicScript", "RemoveChoices"),
+            ("GameplayLogicScript", "DrawAttackArrow"),
+            ("GameplayLogicScript", "CardPower"),
+            ("GameplayLogicScript", "GetCardCost"),
+            ("GameplayLogicScript", "FindCardOwner"),
+            ("GameplayLogicScript", "UpdateRenderRate"),
+            ("GameplayLogicScript", "UpdateGuideText"),
+            ("GameplayLogicScript", "go_Attacker"),
+            ("GameplayLogicScript", "go_Defender"),
+            ("GameplayLogicScript", "go_P0Attack"),
+            ("GameplayLogicScript", "go_P1Attack"),
+            ("GameplayLogicScript", "go_P0Name"),
+            ("GameplayLogicScript", "go_YouLose"),
+            ("GameplayLogicScript", "iCounterAmount"),
+            ("GameplayLogicScript", "audAttack"),
+            ("GameplayLogicScript", "audDraw"),
+            ("GameplayLogicScript", "audDeploy"),
+            ("GameplayLogicScript", "audDiscard"),
+            ("GameplayLogicScript", "text_TurnCount"),
+            ("GameplayLogicScript", "go_MenuManager"),
+            ("HostJoinScript", "SetMain"),
+            ("HostJoinScript", "SetSolo"),
+            ("HostJoinScript", "SetMultiRematch"),
+            ("CardLogicScript", "lgo_AttachedDon"),
+            ("CardLogicScript", "vDestination"),
+            ("CardLogicScript", "LoadCardDefinition"),
+            ("CardLogicScript", "SetFaceUp"),
+            ("LiveCard", "bForcedFaceUp"),
+            ("LiveCard", "iHandUIOrder"),
+            ("LiveCard", "bSummonSick"),
+            ("GameplayState", "Observing"),
+            ("GameplayState", "ObservingCombat"),
         };
 
         void Awake()
@@ -171,6 +225,8 @@ namespace OPTCGTrainer
             // se un tipo della mod non si carica (un tipo di Batsu sparito), restano tutti gli altri
             try { types = typeof(Plugin).Assembly.GetTypes(); }
             catch (ReflectionTypeLoadException e) { missingHooks++; types = e.Types.Where(t => t != null).ToArray(); Log.LogError("tipi della mod non caricati: " + e.Message); }
+            // la guardia della Replay Room
+            try { ReplayGuard.Install(harmony); } catch (Exception e) { Log.LogError("guardia della Replay Room: " + e.Message); }
             foreach (var type in types.Where(t => t.GetCustomAttributes(typeof(HarmonyPatch), false).Length > 0))
             {
                 try { harmony.CreateClassProcessor(type).Patch(); }

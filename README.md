@@ -24,6 +24,8 @@ That's it. Play as usual.
 
 ## What you get
 
+**Replay Room.** Open **Replay Room** from the main menu and choose **Watch** beside a match, or press **Watch replay** on the results screen. Use **Share link** to make a replay public and copy its link. Paste a friend's link into **Watch Shared Replay** to play it in the sim. **Delete** asks for confirmation before removing the selected match's local log files from your PC. Existing public links still work.
+
 **Event Coach.** Getting ready for a regional? Set the event date, the day you want to be ready by and how many games
 you want to play: the coach works out how many games a day, and keeps track of them inside OPTCGSim.
 Open it from *Settings › EVENT COACH* (once your event is set, it's in the main menu too).
@@ -35,6 +37,9 @@ Open it from *Settings › EVENT COACH* (once your event is set, it's in the mai
 - Lost the connection, or the game froze? The game still counts, and in *Today* you say if you **won or lost** it.
   *Edit* fixes a wrong result, and *+ Add game* adds a game the mod didn't record.
 - Your opponent left in the middle of a game? It's a win, and it counts (before 0.5.0 it was dropped as Solo v Self).
+- Multiplayer games count whether OPTCGSim's *Hide Player Names* option is on or off (before 0.5.2, with names shown, which
+  is the default, every multiplayer game said "too short (turn 0), not counted"). Games the mod recorded are read again by
+  themselves. If you added those games with *+ ADD GAME*, you now see them twice: remove the copies with *edit → REMOVE*.
 - **Games on other simulators** (from 0.5.0): log them by hand in the OPTCG Trainer Chrome extension and they count in
   the same coach. The extension shows the same goal of the day.
 

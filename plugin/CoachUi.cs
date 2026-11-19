@@ -26,7 +26,7 @@ namespace OPTCGTrainer
         static RectTransform page;
         static TextMeshProUGUI menuStatus, settingsStatus;
         static string tab = "today";
-        static bool built, settingsShown;
+        static bool built, settingsShown, wasHome, wasPrivate, wasSettings;
 
         // ---- lo stato, ricalcolato quando serve ----
         static CoachState state;
@@ -91,7 +91,16 @@ namespace OPTCGTrainer
                     if (redraw || (tab != "setup" && pageVersion != version)) Rebuild();
                 }
             }
-            if (Time.realtimeSinceStartup < nextLook) return;
+            bool home = host != null && host.go_Settings != null && host.go_Settings.activeInHierarchy && !ReplayRoom.Active;
+            bool inPrivate = host != null && host.go_IPAddress != null && host.go_IPAddress.activeInHierarchy
+                && host.go_OPBounty != null && host.go_OPBounty.activeInHierarchy && !IsOpen
+                && Plugin.HideMultiplayerExtras.Value && !ReplayRoom.Active;
+            // Refresh on the first frame of a page change. Keep polling event data at the usual rate.
+            if (Time.realtimeSinceStartup < nextLook && home == wasHome && inPrivate == wasPrivate
+                && settingsShown == wasSettings) return;
+            wasHome = home;
+            wasPrivate = inPrivate;
+            wasSettings = settingsShown;
             nextLook = Time.realtimeSinceStartup + 1f;
 
             if (host == null)
@@ -111,12 +120,12 @@ namespace OPTCGTrainer
             // il pulsante del menu segue Settings (Batsu accende e spegne i pulsanti del menu uno per uno) e c'è solo con un evento
             if (menuButton != null && host.go_Settings != null)
             {
-                bool show = active && host.go_Settings.activeSelf;
+                bool show = active && home;
                 if (menuButton.activeSelf != show) menuButton.SetActive(show);
                 if (show) SetText(menuStatus, StatusLine(st));
             }
             if (settingsStatus != null) SetText(settingsStatus, active ? StatusLine(st) : "Plan your games for a tournament");
-            UpdatePrivateBox(st);
+            UpdatePrivateBox(st, inPrivate);
         }
 
         static void SetText(TMP_Text t, string text) { if (t != null && t.text != text) t.text = text; }
@@ -144,7 +153,8 @@ namespace OPTCGTrainer
         {
             // come MenuButton: si copia dopo che Batsu ha tradotto le scritte del menu
             var settings = host.go_Settings;
-            var label = settings != null ? settings.GetComponentInChildren<TMP_Text>(true) : null;
+            if (settings == null || !settings.activeInHierarchy) return;
+            var label = settings.GetComponentInChildren<TMP_Text>(true);
             if (label == null || label.text.StartsWith("Button.")) return;
             CoachLook.UseFont(label);
             try
@@ -212,7 +222,8 @@ namespace OPTCGTrainer
             var rt = (RectTransform)menuButton.transform;
             rt.sizeDelta = ((RectTransform)settings.transform).sizeDelta;
             // a specchio di Become a Patron rispetto al centro dello schermo, un poco più giù (sopra ci va la riga dello stato)
-            var canvas = (RectTransform)patreon.GetComponentInParent<Canvas>().rootCanvas.transform;
+            var parentCanvas = patreon.GetComponentInParent<Canvas>(true) ?? settings.GetComponentInParent<Canvas>(true);
+            var canvas = (RectTransform)parentCanvas.rootCanvas.transform;
             var center = canvas.TransformPoint(canvas.rect.center);
             var p = patreon.transform.position;
             rt.position = new Vector3(2 * center.x - p.x, p.y, p.z);
@@ -251,10 +262,9 @@ namespace OPTCGTrainer
 
         // ---- il riquadro nella schermata Private (disegno coach-e-private) ----
 
-        static void UpdatePrivateBox(CoachState st)
+        static void UpdatePrivateBox(CoachState st, bool inPrivate)
         {
-            bool show = st != null && Plugin.HideMultiplayerExtras.Value && host.go_IPAddress != null && host.go_IPAddress.activeInHierarchy
-                && host.go_OPBounty != null && host.go_OPBounty.activeInHierarchy && host.go_DeckSelector != null && !IsOpen;
+            bool show = inPrivate && st != null && host.go_DeckSelector != null;
             if (!show) { if (privateBox != null) privateBox.SetActive(false); return; }
             if (privateBox == null || !privateBox.activeSelf) CoachSync.PullSoon(); // Private si è appena aperta
             if (privateBox == null)
