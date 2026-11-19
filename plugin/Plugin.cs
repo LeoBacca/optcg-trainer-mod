@@ -25,7 +25,7 @@ namespace OPTCGTrainer
     public class Plugin : BaseUnityPlugin
     {
         public const string Guid = "com.optcgtrainer.mod";
-        public const string Version = "0.6.0";
+        public const string Version = "0.6.1";
         internal static ManualLogSource Log;
         internal static Plugin Instance;
         internal static Sprite LogoSprite;

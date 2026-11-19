@@ -23,7 +23,7 @@ namespace OPTCGTrainer
 
         sealed class ReplayEntry
         {
-            public string path, fileName, id, sha256;
+            public string path, fileName, id, sha256, siteReplayId;
             public List<FileInfo> localCopies;
             public DateTime date;
             public bool hasTime, fromSharedDir, isSolo, hasNotes, isShared;
@@ -57,7 +57,7 @@ namespace OPTCGTrainer
         static string statusMessage;
         static bool statusIsError;
         static int page;
-        static int opToken;
+        static int opToken, sharingRevision;
         static float nextCheck, nextWheel;
 
         internal static bool Visible => shade != null;
@@ -839,6 +839,8 @@ namespace OPTCGTrainer
                     if (ok)
                     {
                         e.isShared = true;
+                        Account.ParseReplayId(url, out e.siteReplayId);
+                        RefreshSharedStatus();
                         SetStatus(string.IsNullOrEmpty(url) ? (msg ?? "Link copied!") : "Link copied! " + url, false);
                         if (Visible) DrawBody();
                     }
@@ -979,9 +981,10 @@ namespace OPTCGTrainer
                         }
                     }
 
-                    bool isShared = kv.Value.fromShared
-                        || (match != null && !string.IsNullOrEmpty(match.replayId))
-                        || Account.HasSharedUrl(file.FullName, out _);
+                    string siteId = match?.site == Account.Site ? match?.replayId : null;
+                    if (siteId == null && Account.HasSharedUrl(file.FullName, out var url)
+                        && url.StartsWith(Account.Site + "/", StringComparison.OrdinalIgnoreCase))
+                        Account.ParseReplayId(url, out siteId);
 
                     var entryItem = new ReplayEntry
                     {
@@ -995,7 +998,8 @@ namespace OPTCGTrainer
                         fromSharedDir = kv.Value.fromShared,
                         isSolo = isSolo,
                         hasNotes = hasNotes,
-                        isShared = isShared,
+                        siteReplayId = siteId,
+                        isShared = kv.Value.fromShared,
                         result = result,
                         turns = turns,
                         first = summary.first,
@@ -1022,12 +1026,32 @@ namespace OPTCGTrainer
                 return cmp != 0 ? cmp : string.Compare(a.fileName, b.fileName, StringComparison.OrdinalIgnoreCase);
             });
 
+            RefreshSharedStatus();
+
             distinctLeaders.AddRange(leaderCounts.OrderByDescending(k => k.Value)
                 .ThenBy(k => CoachUi.LeaderName(k.Key, null), StringComparer.OrdinalIgnoreCase)
                 .Select(k => k.Key));
 
             if (leaderFilter != null && !distinctLeaders.Any(l => string.Equals(l, leaderFilter, StringComparison.OrdinalIgnoreCase)))
                 leaderFilter = null;
+        }
+
+        static void RefreshSharedStatus()
+        {
+            int revision = ++sharingRevision;
+            if (!Account.Linked) return;
+            Plugin.Instance.StartCoroutine(Account.LoadPublicReplays((ids, hashes) =>
+            {
+                if (!Visible || revision != sharingRevision) return;
+                if (ids == null)
+                {
+                    SetStatus("Could not check public links. Use Refresh to try again.", true);
+                    return;
+                }
+                foreach (var e in allEntries)
+                    e.isShared = e.fromSharedDir || ids.Contains(e.siteReplayId) || hashes.Contains(e.sha256);
+                DrawBody();
+            }));
         }
 
         static void ApplyFilters()

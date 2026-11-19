@@ -80,6 +80,27 @@ namespace OPTCGTrainer
             return true;
         }
 
+        internal static IEnumerator LoadPublicReplays(Action<HashSet<string>, HashSet<string>> loaded)
+        {
+            var owner = account;
+            var req = new Request("GET", "/api/shared-replays", null);
+            yield return req.Send();
+            if (owner != account || !Linked) yield break;
+            if (!req.Ok || !(req.Body["replays"] is JArray rows))
+            {
+                loaded(null, null);
+                yield break;
+            }
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            var hashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var row in rows)
+            {
+                ids.Add((string)row["id"]);
+                hashes.Add((string)row["hash"]);
+            }
+            loaded(ids, hashes);
+        }
+
         static string SharedLinksPath => Path.Combine(Store.Root, "shared-links.json");
 
         static Dictionary<string, string> SharedCache() =>
