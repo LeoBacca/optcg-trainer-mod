@@ -32,7 +32,9 @@ try {
     Write-Host ''
     Write-Host '  OPTCG Trainer: checking latest version on GitHub...'
     $headers = @{ 'User-Agent' = 'OPTCG-Trainer-Installer'; 'Accept' = 'application/vnd.github+json' }
-    $releases = @(Invoke-RestMethod -Uri $api -Headers $headers -TimeoutSec 20 -UseBasicParsing)
+    # Windows PowerShell 5.1 hands the JSON array back as ONE object: @(Invoke-RestMethod ...) would hide every release inside it
+    $resp = Invoke-RestMethod -Uri $api -Headers $headers -TimeoutSec 20 -UseBasicParsing
+    $releases = @($resp)
 
     $bestVer = $null
     $bestAsset = $null
