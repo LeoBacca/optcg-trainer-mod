@@ -3,11 +3,10 @@ OPTCG Trainer for OPTCGSim — beta
 
 INSTALL
 1. Close OPTCGSim.
-2. Double-click "Install OPTCG Trainer".
-   (If Windows asks "Do you want to run this file?", press Run.)
-3. It finds your OPTCGSim by itself. If you have more than one, pick the one you play with.
-4. Open "OPTCGSim + Trainer" from your desktop or the Start menu. Use it from now on:
-   the usual OPTCGSim still starts without the mod.
+2. Double-click "Install OPTCG Trainer.cmd".
+   (If Windows asks "Do you want to run this file?" or SmartScreen appears, click "More info" -> "Run anyway".)
+3. It finds your OPTCGSim by itself and installs/updates automatically (if you have more than one, pick the one you play with).
+4. Open OPTCGSim just like before (or "OPTCGSim + Trainer" from your desktop or Start menu).
 5. In the main menu press the blue OPTCG TRAINER button: your browser opens
    OPTCG Trainer, check the code is the same you see in the sim and press Link.
    You do it once.

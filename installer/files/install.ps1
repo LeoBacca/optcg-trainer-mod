@@ -91,16 +91,27 @@ function Recent-Sims {
 }
 
 try {
+    $home_ = if ($HomeDir) { $HomeDir } else { Join-Path $env:LOCALAPPDATA "OPTCGTrainer" }
+    $isUpdate = $false
+    if (-not $SimDir) {
+        $prevInfo = Join-Path $home_ "install.json"
+        if (Test-Path -LiteralPath $prevInfo) {
+            try {
+                $prevDir = (Get-Content -LiteralPath $prevInfo -Raw | ConvertFrom-Json).simDir
+                if ($prevDir -and (Test-Path -LiteralPath (Join-Path $prevDir "OPTCGSim.exe"))) {
+                    $SimDir = $prevDir
+                    $isUpdate = $true
+                }
+            } catch { }
+        }
+    }
     if (-not $SimDir) {
         $sims = @(Recent-Sims)
         if ($sims.Count -eq 0) {
             if (-not $Quiet) { Write-Host "Looking for OPTCGSim on this PC... (it can take a minute)" }
             $sims = @(Find-Sims)
         }
-        if ($sims.Count -eq 1) {
-            $answer = if ($Quiet) { "Yes" } else { [System.Windows.Forms.MessageBox]::Show("Install OPTCG Trainer for the OPTCGSim in:`n`n$($sims[0])", $title, "YesNo", "Question") }
-            $SimDir = if ($answer -eq "Yes") { $sims[0] } else { Pick-Folder }
-        }
+        if ($sims.Count -eq 1) { $SimDir = $sims[0] }
         elseif ($sims.Count -gt 1) { $SimDir = Pick-FromList $sims }
         else { Say "I couldn't find OPTCGSim. Please select its folder (the one with OPTCGSim.exe inside)."; $SimDir = Pick-Folder }
     }
@@ -115,7 +126,6 @@ try {
     }
 
     # ---- 3. the files ----
-    $home_ = if ($HomeDir) { $HomeDir } else { Join-Path $env:LOCALAPPDATA "OPTCGTrainer" }
     $bep = Join-Path $home_ "BepInEx"
     New-Item -ItemType Directory -Force (Join-Path $bep "core"), (Join-Path $bep "plugins") | Out-Null
     Copy-Item -Force (Join-Path $here "BepInEx\core\*") (Join-Path $bep "core")
@@ -124,28 +134,51 @@ try {
 
     $ours = Join-Path $here "winhttp.dll"
     $theirs = Join-Path $SimDir "winhttp.dll"
-    if ((Test-Path $theirs) -and ((Get-FileHash $theirs).Hash -ne (Get-FileHash $ours).Hash)) {
+    $oursHash = (Get-FileHash $ours).Hash
+    if ((Test-Path $theirs) -and ((Get-FileHash $theirs).Hash -ne $oursHash)) {
         Copy-Item -Force $theirs "$theirs.before-optcgtrainer"   # another mod loader was there: kept aside, Uninstall puts it back
     }
     Copy-Item -Force $ours $theirs
 
-    @{ simDir = $SimDir; installedAt = (Get-Date).ToString("o") } | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $home_ "install.json")
+    # doorstop_config.ini lets users keep opening their usual OPTCGSim.exe (and any existing shortcut) with the mod active
+    $preloader = Join-Path $bep "core\BepInEx.Preloader.dll"
+    $ini = Join-Path $SimDir "doorstop_config.ini"
+    if ((Test-Path -LiteralPath $ini) -and ((Get-Content -LiteralPath $ini -Raw) -notmatch '# OPTCG Trainer:')) {
+        Copy-Item -Force -LiteralPath $ini "$ini.before-optcgtrainer"
+    }
+    @(
+        "# OPTCG Trainer: loads the mod whenever OPTCGSim starts (uninstall removes this file)."
+        "[General]"
+        "enabled = true"
+        "target_assembly = $preloader"
+        "ignore_disable_switch = true"
+    ) | Set-Content -Encoding Unicode -LiteralPath $ini
 
-    # ---- 4. the shortcut ----
+    @{ simDir = $SimDir; installedAt = (Get-Date).ToString("o"); winhttpHash = $oursHash } | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $home_ "install.json")
+    if (Test-Path (Join-Path $here "uninstall.ps1")) {
+        Copy-Item -Force (Join-Path $here "uninstall.ps1") (Join-Path $home_ "uninstall.ps1")
+        "@echo off`r`npowershell.exe -NoProfile -ExecutionPolicy Bypass -File `"%~dp0uninstall.ps1`"`r`nif errorlevel 1 pause`r`n" | Set-Content -Encoding ASCII (Join-Path $home_ "Uninstall OPTCG Trainer.cmd")
+    }
+
+    # ---- 4. the shortcut (kept updated for users who already launch 'OPTCGSim + Trainer') ----
     $desktop = if ($ShortcutDir) { $ShortcutDir } else { [Environment]::GetFolderPath("Desktop") }
     $lnk = Join-Path $desktop "OPTCGSim + Trainer.lnk"
     $shell = New-Object -ComObject WScript.Shell
     $s = $shell.CreateShortcut($lnk)
     $s.TargetPath = Join-Path $SimDir "OPTCGSim.exe"
     $s.WorkingDirectory = $SimDir
-    $s.Arguments = "--doorstop-enabled true --doorstop-target-assembly `"$(Join-Path $bep 'core\BepInEx.Preloader.dll')`""
+    $s.Arguments = "--doorstop-enabled true --doorstop-target-assembly `"$preloader`""
     $s.IconLocation = (Join-Path $home_ "optcgtrainer.ico") + ",0"
     $s.Description = "OPTCGSim with OPTCG Trainer"
     $s.Save()
     # the same shortcut in the Start menu (All apps, and you can search it); pinning it is up to you: right-click > Pin
     if (-not $ShortcutDir) { Copy-Item -Force $lnk (Join-Path ([Environment]::GetFolderPath("Programs")) "OPTCGSim + Trainer.lnk") }
 
-    Say "OPTCG Trainer is installed!`n`nOpen 'OPTCGSim + Trainer' from your desktop (not the usual OPTCGSim).`n`nThe first time, press the blue OPTCG TRAINER button in the main menu to link your OPTCG Trainer account."
+    if ($isUpdate) {
+        Say "OPTCG Trainer is updated!`n`nKeep opening OPTCGSim (or 'OPTCGSim + Trainer') just like before."
+    } else {
+        Say "OPTCG Trainer is installed!`n`nYou can open OPTCGSim just like before (or 'OPTCGSim + Trainer' from your desktop).`n`nThe first time, press the blue OPTCG TRAINER button in the main menu to link your OPTCG Trainer account."
+    }
 }
 catch {
     $msg = $_.Exception.Message

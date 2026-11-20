@@ -10,17 +10,20 @@ function Say([string]$text) { if ($Quiet) { Write-Host $text } else { [System.Wi
 
 $home_ = if ($HomeDir) { $HomeDir } else { Join-Path $env:LOCALAPPDATA "OPTCGTrainer" }
 $info = Join-Path $home_ "install.json"
-$simDir = if (Test-Path $info) { (Get-Content $info -Raw | ConvertFrom-Json).simDir } else { $null }
+$meta = if (Test-Path $info) { Get-Content $info -Raw | ConvertFrom-Json } else { $null }
+$simDir = if ($meta) { $meta.simDir } else { $null }
 
 if ($simDir) {
     if (Get-Process OPTCGSim -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($simDir) }) { Say "Please close OPTCGSim first, then run Uninstall again."; exit 1 }
     $dll = Join-Path $simDir "winhttp.dll"
-    if ((Test-Path $dll) -and ((Get-FileHash $dll).Hash -eq (Get-FileHash (Join-Path $here "winhttp.dll")).Hash)) { Remove-Item -Force $dll }
+    $expectedHash = if (Test-Path (Join-Path $here "winhttp.dll")) { (Get-FileHash (Join-Path $here "winhttp.dll")).Hash } elseif ($meta) { $meta.winhttpHash } else { $null }
+    if ((Test-Path $dll) -and $expectedHash -and ((Get-FileHash $dll).Hash -eq $expectedHash)) { Remove-Item -Force $dll }
     if (Test-Path "$dll.before-optcgtrainer") { Move-Item -Force "$dll.before-optcgtrainer" $dll }
     # the doorstop_config.ini the mod leaves while OPTCGSim updates itself (0.5.1): normally the mod deletes it when the game
     # restarts, but it stays if the mod didn't load. Only ours (it has the "# OPTCG Trainer:" line)
     $ini = Join-Path $simDir "doorstop_config.ini"
     if ((Test-Path $ini) -and ((Get-Content $ini -Raw) -match '# OPTCG Trainer:')) { Remove-Item -Force $ini }
+    if (Test-Path "$ini.before-optcgtrainer") { Move-Item -Force "$ini.before-optcgtrainer" $ini }
 }
 $desktop = if ($ShortcutDir) { $ShortcutDir } else { [Environment]::GetFolderPath("Desktop") }
 Remove-Item -Force (Join-Path $desktop "OPTCGSim + Trainer.lnk") -ErrorAction SilentlyContinue

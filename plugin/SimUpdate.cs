@@ -43,21 +43,10 @@ namespace OPTCGTrainer
         static volatile bool stop;
         static string watchScene;
 
-        // All'avvio: un doorstop_config.ini della mod vuol dire che il sim è appena ripartito dal patcher (con la mod). Ha fatto
-        // il suo lavoro e si toglie. Doorstop lo legge dalla cartella in cui parte il sim, che per il patcher è quella del sim.
+        // Il doorstop_config.ini della mod ora resta nella cartella del sim così anche il normale OPTCGSim.exe (o qualsiasi
+        // collegamento già esistente) parte sempre con la mod, anche dopo gli aggiornamenti del sim. Lo rimuove solo l'uninstaller.
         internal static void CleanUp()
         {
-            foreach (var dir in new[] { Directory.GetCurrentDirectory(), Paths.GameRootPath }.Distinct(StringComparer.OrdinalIgnoreCase))
-            {
-                try
-                {
-                    var file = Path.Combine(dir, IniName);
-                    if (!File.Exists(file) || !File.ReadAllText(file).Contains(Mark)) continue;
-                    File.Delete(file);
-                    Plugin.Log.LogInfo($"mod tornata dopo l'aggiornamento del sim (ora {Application.version}): tolto il {IniName} che la mod aveva messo");
-                }
-                catch (Exception e) { Plugin.Log.LogWarning($"{IniName} della mod non tolto da {dir}: {e.Message}"); }
-            }
         }
 
         // Il controllo degli aggiornamenti del sim sta partendo (o è già partito): da qui al cambio di scena, se compare la

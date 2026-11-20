@@ -8,19 +8,17 @@ game to share, and find every game already on your OPTCG Trainer account, with y
 
 ![The OPTCG TRAINER button in the OPTCGSim main menu](docs/images/menu.jpg)
 
-## Install (2 minutes)
+## Install (1 minute)
 
-1. Download **`OPTCG-Trainer-x.y.z.zip`** from the [Releases page](https://github.com/LeoBacca/optcg-trainer-mod/releases) (the newest one is at the top).
-2. Right-click the zip → **Extract All…** → **Extract**.
-3. Close OPTCGSim, then double-click **`Install OPTCG Trainer`** in the extracted folder.
-   - If Windows asks *"Do you want to run this file?"* press **Run**.
-   - It finds your OPTCGSim by itself. If you have more than one, pick the one you play with.
-4. Open **OPTCGSim + Trainer** from your desktop or the Start menu. **Use it from now on**: the usual OPTCGSim still starts without the mod.
-   (To pin it to the taskbar: right-click it → *Pin to taskbar*.)
-5. In the main menu press the blue **OPTCG TRAINER** button. Your browser opens OPTCG Trainer: check the code is the same
+1. Download **`Install.OPTCG.Trainer.cmd`** from the [Releases page](https://github.com/LeoBacca/optcg-trainer-mod/releases) (the newest one is at the top).
+2. Close OPTCGSim, then double-click **`Install.OPTCG.Trainer.cmd`** (no zip to extract).
+   - If Chrome asks to keep the file, press **Keep**. If Windows SmartScreen appears, click **More info → Run anyway**.
+   - It downloads the latest version, finds your OPTCGSim by itself and installs/updates automatically (if you have more than one, pick the one you play with).
+3. Open **OPTCGSim** just like before (or **OPTCGSim + Trainer** from your desktop / Start menu).
+4. In the main menu press the blue **OPTCG TRAINER** button. Your browser opens OPTCG Trainer: check the code is the same
    you see in the sim and press **Link**. You do this once.
 
-That's it. Play as usual.
+That's it. Play as usual. (Prefer manual install? The full `OPTCG-Trainer-x.y.z.zip` is also attached to every release.)
 
 ## What you get
 

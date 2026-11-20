@@ -56,4 +56,4 @@ $dll = Join-Path $files "OPTCGTrainer.dll"
 $inside = [Reflection.AssemblyName]::GetAssemblyName($dll).Version
 if ("$inside" -ne "$version.0") { throw "nel dll c'e' la versione $inside, non la $version.0: Updater.cs lo rifiuterebbe" }
 "e per la release (con questo nome): $dll (versione dentro: $inside)"
-"  gh release create v$version `"$zip`" `"$dll`" --prerelease --title `"OPTCG Trainer $version (beta)`" --notes-file <note.md>"
+"  gh release create v$version `"$out\Install OPTCG Trainer.cmd`" `"$zip`" `"$dll`" --prerelease --title `"OPTCG Trainer $version (beta)`" --notes-file <note.md>"
