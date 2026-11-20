@@ -25,7 +25,7 @@ namespace OPTCGTrainer
     public class Plugin : BaseUnityPlugin
     {
         public const string Guid = "com.optcgtrainer.mod";
-        public const string Version = "0.6.1";
+        public const string Version = "0.6.2";
         internal static ManualLogSource Log;
         internal static Plugin Instance;
         internal static Sprite LogoSprite;
@@ -291,16 +291,20 @@ namespace OPTCGTrainer
         // Sotto, se su GitHub c'è una versione nuova, la si offre qui: il pulsante OPTCG TRAINER (con la sua riga) può mancare.
         void OnGUI()
         {
-            if (missingHooks == 0) return;
+            bool menuMissing = MenuButton.Instance == null && !GameUi.InGame && !ReplayRoom.Active;
+            if (missingHooks == 0 && !menuMissing) return;
             float scale = Screen.height / 1080f;
             warning ??= new GUIStyle(GUI.skin.label) { alignment = TextAnchor.UpperCenter, fontSize = Mathf.RoundToInt(14 * scale), richText = true };
-            var old = GUI.color;
-            GUI.color = new Color(1f, 0.55f, 0.45f);
-            GUI.Label(new Rect(0, 4, Screen.width, 40), $"OPTCG Trainer {Version}: this OPTCGSim version changed, some mod features are off. Check for a mod update.", warning);
-            GUI.color = old;
+            if (missingHooks > 0)
+            {
+                var old = GUI.color;
+                GUI.color = new Color(1f, 0.55f, 0.45f);
+                GUI.Label(new Rect(0, 4, Screen.width, 40), $"OPTCG Trainer {Version}: this OPTCGSim version changed, some mod features are off. Check for a mod update.", warning);
+                GUI.color = old;
+            }
             var update = Updater.Text;
             if (update == null) return;
-            var line = new Rect(Screen.width / 2f - 260 * scale, 28 * scale, 520 * scale, 30 * scale);
+            var line = new Rect(Screen.width / 2f - 260 * scale, (missingHooks > 0 ? 28 : 8) * scale, 520 * scale, 30 * scale);
             updateButton ??= new GUIStyle(GUI.skin.button) { fontSize = Mathf.RoundToInt(14 * scale), richText = true };
             if (!Updater.Clickable) GUI.Label(line, update, warning);
             else if (GUI.Button(line, update, updateButton)) Updater.Install();

@@ -45,7 +45,9 @@ namespace OPTCGTrainer
         static GameObject[] gos;                                  // pezzo del modello → la sua carta nel sim
         static readonly Dictionary<GameObject, int> pieceOf = new Dictionary<GameObject, int>();
         static int done = -1;                                     // l'ultima battuta fatta (-1 = lo stato iniziale)
-        static bool playing, revealHand, fast;
+        internal enum HandView { Hidden, All, Known }
+        static bool playing, fast;
+        static HandView handMode;
         static float speed = 1, wait;
         static GameStyle styleBefore;
         // l'attacco in corso: da quale battuta, quando è arrivato il risultato e i due numeri del risultato
@@ -111,7 +113,7 @@ namespace OPTCGTrainer
 
         static void Build()
         {
-            done = -1; playing = false; fast = false; revealHand = false; wait = 0;
+            done = -1; playing = false; fast = false; handMode = HandView.Hidden; wait = 0;
             attackBeat = resultBeat = -1; pendingAttacker = pendingTarget = 0;
             checks = checksWrong = misplaced = errors = 0; problems.Clear(); pieceOf.Clear(); sounds.Clear();
             Array.Clear(lastRested, 0, 3);
@@ -350,7 +352,14 @@ namespace OPTCGTrainer
 
         internal static float Speed => speed;
         internal static bool Playing => playing;
-        internal static bool RevealHand => revealHand;
+        internal static HandView HandMode => handMode;
+        internal static bool RevealHand => handMode != HandView.Hidden;
+        internal static string HandButtonLabel => handMode switch
+        {
+            HandView.All => "Show known",
+            HandView.Known => "Hide hand",
+            _ => "Show hand",
+        };
         internal static int Moment => done;
         internal static int TotalBeats => log != null ? log.Beats.Count : 0;
         internal static int TurnAt(int b) => log != null && b >= 0 && b < log.Beats.Count ? log.Beats[b].turn : 0;
@@ -360,7 +369,18 @@ namespace OPTCGTrainer
 
         internal static void ToggleHand()
         {
-            revealHand = !revealHand;
+            handMode = handMode switch
+            {
+                HandView.Hidden => HandView.All,
+                HandView.All => HandView.Known,
+                _ => HandView.Hidden,
+            };
+            if (Active) FixFaces();
+        }
+
+        internal static void SetHand(HandView mode)
+        {
+            handMode = mode;
             if (Active) FixFaces();
         }
 
@@ -558,7 +578,7 @@ namespace OPTCGTrainer
             {
                 if (!pieceOf.TryGetValue(go, out var i)) continue;
                 var piece = model.Pieces[i];
-                bool up = revealHand && piece.seen && Known(piece.card);
+                bool up = (handMode == HandView.All || (handMode == HandView.Known && piece.seen)) && Known(piece.card);
                 if (up) LoadDef(go, piece.card);
                 var cls = go.GetComponent<CardLogicScript>();
                 cls.SetFaceUp(up);
@@ -794,7 +814,12 @@ namespace OPTCGTrainer
                     if (rest == "max") { RunFast(); return "a tutta velocità fino in fondo"; }
                     if (!float.TryParse(rest, NumberStyles.Float, CultureInfo.InvariantCulture, out var s)) return "speed <0.5|1|2|4|max>";
                     SetSpeed(s); return Status(true);
-                case "hand": ToggleHand(); return revealHand ? "mano dell'avversario scoperta" : "mano dell'avversario coperta";
+                case "hand":
+                    if (rest == "all") SetHand(HandView.All);
+                    else if (rest == "known") SetHand(HandView.Known);
+                    else if (rest == "hide" || rest == "hidden" || rest == "off") SetHand(HandView.Hidden);
+                    else ToggleHand();
+                    return "mano dell'avversario: " + (handMode == HandView.All ? "tutte scoperte" : handMode == HandView.Known ? "solo carte note" : "coperta");
                 case "stop": Exit(); return "chiusa";
                 case "status": return Status(true);
                 case "goto": if (!Active) return "chiusa"; JumpTo(int.Parse(rest) - 1); return Status(true);
@@ -1008,12 +1033,12 @@ namespace OPTCGTrainer
             options.transform.SetParent(rt, false);
             Look.Place((RectTransform)options.transform, 0.22f, -2.25f, 0.76f, 2.23f);
             options.GetComponent<Image>().color = CoachLook.Panel;
-            GameObject Option(int row, string label, Action action) =>
-                Button("ReplayOption" + row, label, () => { options.SetActive(false); action(); },
+            GameObject Option(int row, string label, Action action, bool close = true) =>
+                Button("ReplayOption" + row, label, () => { if (close) options.SetActive(false); action(); },
                     0.035f, 0.018f + row * 0.139f, 0.93f, 0.132f, Look.Blue, options.transform);
             drawOption = Option(0, "Draw", ReplayStudy.ToggleDraw);
             notesOption = Option(1, "Notes", ReplayStudy.ToggleNotes);
-            hand = Option(2, "Show known cards", ReplayRoom.ToggleHand);
+            hand = Option(2, ReplayRoom.HandButtonLabel, ReplayRoom.ToggleHand, close: false);
             bottomOption = Option(3, "Deck bottom", ReplayStudy.ToggleBottom);
             Option(4, "Screenshot", () => ShareShot.Shoot(game));
             shareOption = Option(5, "Share replay link", ReplayStudy.ShareCurrentReplay);
@@ -1085,7 +1110,7 @@ namespace OPTCGTrainer
             if (drawnNoteVersion != ReplayStudy.NoteVersion) RebuildNoteDots();
             if (options.activeSelf)
             {
-                Look.SetLabel(hand, ReplayRoom.RevealHand ? "Hide known cards" : "Show known cards");
+                Look.SetLabel(hand, ReplayRoom.HandButtonLabel);
                 Look.SetTint(hand, ReplayRoom.RevealHand ? Look.GoldTint : Look.Blue);
                 Look.SetTint(drawOption, ReplayStudy.DrawOpen ? Look.GoldTint : Look.Blue);
                 Look.SetTint(notesOption, ReplayStudy.NotesOpen ? Look.GoldTint : Look.Blue);
