@@ -10,15 +10,17 @@ game to share, and find every game already on your OPTCG Trainer account, with y
 
 ## Install (1 minute)
 
-1. Download **`Install.OPTCG.Trainer.cmd`** from the [Releases page](https://github.com/LeoBacca/optcg-trainer-mod/releases) (the newest one is at the top).
-2. Close OPTCGSim, then double-click **`Install.OPTCG.Trainer.cmd`** (no zip to extract).
+Step-by-step guide with pictures: **[optcgtrainer.com/mod](https://optcgtrainer.com/mod)**.
+
+1. Download **`Install OPTCG Trainer.cmd`** from [optcgtrainer.com/mod](https://optcgtrainer.com/mod).
+2. Close OPTCGSim, then double-click **`Install OPTCG Trainer.cmd`** (no zip to extract).
    - If Chrome asks to keep the file, press **Keep**. If Windows SmartScreen appears, click **More info → Run anyway**.
    - It downloads the latest version, finds your OPTCGSim by itself and installs/updates automatically (if you have more than one, pick the one you play with).
 3. Open **OPTCGSim** just like before (or **OPTCGSim + Trainer** from your desktop / Start menu).
 4. In the main menu press the blue **OPTCG TRAINER** button. Your browser opens OPTCG Trainer: check the code is the same
    you see in the sim and press **Link**. You do this once.
 
-That's it. Play as usual. (Prefer manual install? The full `OPTCG-Trainer-x.y.z.zip` is also attached to every release.)
+That's it. Play as usual. (Prefer manual install? The full zip is on [optcgtrainer.com/mod](https://optcgtrainer.com/mod) too, and attached to every release.)
 
 ## What you get
 

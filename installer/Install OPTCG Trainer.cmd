@@ -1,6 +1,6 @@
 @echo off
 rem Installs OPTCG Trainer for OPTCGSim (https://github.com/LeoBacca/optcg-trainer-mod).
-rem Double-click this file: if the zip files aren't next to it, it downloads the latest release from GitHub.
+rem Double-click this file: if the zip files aren't next to it, it downloads the latest version from optcgtrainer.com.
 setlocal
 if exist "%~dp0files\install.ps1" (
   powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0files\install.ps1"
@@ -11,8 +11,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& ([ScriptBlock]::Cr
 :done
 if errorlevel 1 (
   echo.
-  echo   Something went wrong. Take a screenshot of this window and send it to Leo,
-  echo   together with this file: %TEMP%\optcgtrainer-install.log
+  echo   Something went wrong. Take a screenshot of this window and send it to Leo.
+  echo   If the file %TEMP%\optcgtrainer-install.log is there, send it too.
   echo.
   pause
   exit /b 1
@@ -24,51 +24,17 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$api = 'https://api.github.com/repos/LeoBacca/optcg-trainer-mod/releases?per_page=20'
-$allowed = 'https://github.com/LeoBacca/optcg-trainer-mod/releases/download/'
+# the site keeps a copy of the newest release (and checks it against GitHub): the installer talks only to optcgtrainer.com
+$url = 'https://optcgtrainer.com/api/mod/package'
 $tmp = Join-Path $env:TEMP ('optcgtrainer-dl-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
 
 try {
     Write-Host ''
-    Write-Host '  OPTCG Trainer: checking latest version on GitHub...'
-    $headers = @{ 'User-Agent' = 'OPTCG-Trainer-Installer'; 'Accept' = 'application/vnd.github+json' }
-    # Windows PowerShell 5.1 hands the JSON array back as ONE object: @(Invoke-RestMethod ...) would hide every release inside it
-    $resp = Invoke-RestMethod -Uri $api -Headers $headers -TimeoutSec 20 -UseBasicParsing
-    $releases = @($resp)
-
-    $bestVer = $null
-    $bestAsset = $null
-    $bestTag = $null
-    foreach ($r in $releases) {
-        if ($r.draft) { continue }
-        $raw = (([string]$r.tag_name) -replace '^v', '') -replace '-.*$', ''
-        $ver = $null
-        if (-not [Version]::TryParse($raw, [ref]$ver)) { continue }
-        $asset = @($r.assets) | Where-Object { $_.name -match '^OPTCG-Trainer-[\w.-]+\.zip$' } | Select-Object -First 1
-        if (-not $asset) { continue }
-        $url = [string]$asset.browser_download_url
-        if (-not $url.StartsWith($allowed, [StringComparison]::Ordinal)) { continue }
-        if ($null -eq $bestVer -or $ver -gt $bestVer) {
-            $bestVer = $ver
-            $bestAsset = $asset
-            $bestTag = [string]$r.tag_name
-        }
-    }
-    if (-not $bestAsset) { throw 'Could not find a downloadable OPTCG Trainer release on GitHub.' }
-
+    Write-Host '  OPTCG Trainer: downloading the latest version from optcgtrainer.com...'
     New-Item -ItemType Directory -Force -Path $tmp | Out-Null
     $zip = Join-Path $tmp 'package.zip'
     $pkg = Join-Path $tmp 'pkg'
-
-    Write-Host "  Downloading OPTCG Trainer $bestTag..."
-    Invoke-WebRequest -Uri $bestAsset.browser_download_url -OutFile $zip -Headers @{ 'User-Agent' = 'OPTCG-Trainer-Installer' } -TimeoutSec 120 -UseBasicParsing
-
-    $digest = [string]$bestAsset.digest
-    if ($digest -and $digest.StartsWith('sha256:', [StringComparison]::OrdinalIgnoreCase)) {
-        $expected = $digest.Substring(7).ToLowerInvariant()
-        $actual = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-        if ($actual -ne $expected) { throw "Downloaded file failed integrity check (expected $expected, got $actual)." }
-    }
+    Invoke-WebRequest -Uri $url -OutFile $zip -Headers @{ 'User-Agent' = 'OPTCG-Trainer-Installer' } -TimeoutSec 120 -UseBasicParsing
 
     Write-Host '  Extracting...'
     Expand-Archive -LiteralPath $zip -DestinationPath $pkg -Force
@@ -80,8 +46,18 @@ try {
     exit $LASTEXITCODE
 }
 catch {
+    $err = $_
+    $msg = $err.Exception.Message
+    if ($err.Exception -is [System.Net.WebException]) {
+        if ($err.Exception.Response) {
+            # the site's own words (e.g. "try again in a minute") are in the response body, not in the exception
+            try { $body = (New-Object IO.StreamReader($err.Exception.Response.GetResponseStream())).ReadToEnd().Trim() } catch { $body = '' }
+            if ($body -and $body.Length -lt 300) { $msg = $body }
+        }
+        else { $msg = "optcgtrainer.com didn't answer ($msg). Check your internet connection and try again in a few minutes." }
+    }
     Write-Host ''
-    Write-Host "  ERROR: $($_.Exception.Message)"
+    Write-Host "  ERROR: $msg"
     exit 1
 }
 finally {

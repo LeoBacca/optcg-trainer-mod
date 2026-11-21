@@ -2,8 +2,8 @@
 #
 # What it does, and nothing else:
 #   1. finds your OPTCGSim folder (or asks you to pick it)
-#   2. adds ONE small file to it: winhttp.dll (BepInEx's loader, Unity Doorstop). Nothing of OPTCGSim is changed.
-#      Opening OPTCGSim.exe as usual still starts the game WITHOUT the mod.
+#   2. adds two small files to it: winhttp.dll (BepInEx's loader, Unity Doorstop) and doorstop_config.ini, so OPTCGSim
+#      starts with the mod however you open it. Nothing of OPTCGSim is changed.
 #   3. puts BepInEx and the mod in %LOCALAPPDATA%\OPTCGTrainer (outside the game folder, so OPTCGSim updates don't touch it)
 #   4. creates the "OPTCGSim + Trainer" shortcut on your desktop: that one starts OPTCGSim with the mod.
 # Undo everything with "Uninstall OPTCG Trainer.cmd".

@@ -22,10 +22,9 @@ IN A GAME
   "Open this game in OPTCG Trainer" opens it.
 
 WHAT IT CHANGES
-- In your OPTCGSim folder it adds one file: winhttp.dll. Nothing else is touched.
-  When OPTCGSim updates itself, the mod should come back by itself after the restart (for that moment it
-  leaves a doorstop_config.ini, and deletes it as soon as the game starts). If it doesn't, close OPTCGSim
-  and open it from the "OPTCGSim + Trainer" shortcut.
+- In your OPTCGSim folder it adds two small files: winhttp.dll and doorstop_config.ini (they load the mod
+  when OPTCGSim starts). Nothing else is touched. If after an OPTCGSim update the OPTCG TRAINER button is
+  missing, close OPTCGSim and open it from the "OPTCGSim + Trainer" shortcut.
 - Everything else is in %LOCALAPPDATA%\OPTCGTrainer.
 - It doesn't change the rules, the cards or the network of the game.
 - It talks to optcgtrainer.com, and only after you link your account. When the game starts it also asks
@@ -35,4 +34,5 @@ UNINSTALL
 Double-click "Uninstall OPTCG Trainer".
 
 PROBLEMS?
+Step-by-step guide with pictures: https://optcgtrainer.com/mod
 Tell Leo, and send the file %LOCALAPPDATA%\OPTCGTrainer\BepInEx\LogOutput.log
